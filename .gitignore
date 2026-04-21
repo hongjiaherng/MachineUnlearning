@@ -1,0 +1,7 @@
+.venv/
+.claude/
+data/
+!src/machineunlearning/data/
+checkpoint/
+.ruff_cache/
+__pycache__/

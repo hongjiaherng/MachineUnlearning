@@ -1,24 +1,21 @@
-import torch
-import numpy as np
-import random
-from PIL import Image
 import argparse
-from typing import Tuple, List
-import pandas as pd
 import os
+import random
+from typing import List, Tuple
+
+import numpy as np
+import pandas as pd
+import torch
+from PIL import Image
 
 
-def set_seed(
-    seed: int
-) -> None:
+def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
 
 
-def device_configuration(
-    args: argparse.Namespace
-) -> Tuple[torch.device, str]:
+def device_configuration(args: argparse.Namespace) -> Tuple[torch.device, str]:
     # Device configuration
     if torch.cuda.is_available() and args.gpu:
         device = torch.device("cuda")
@@ -30,9 +27,7 @@ def device_configuration(
 
 
 def image_tensor2image_numpy(
-    image_tensor: torch.Tensor,
-    squeeze: bool= False,
-    detach: bool= False
+    image_tensor: torch.Tensor, squeeze: bool = False, detach: bool = False
 ) -> np.array:
     """
     Input:
@@ -43,26 +38,33 @@ def image_tensor2image_numpy(
     """
     if squeeze:
         if detach:
-            image_numpy = image_tensor.cpu().detach().numpy().squeeze(0)  # move tensor to cpu and convert to numpy
+            image_numpy = (
+                image_tensor.cpu().detach().numpy().squeeze(0)
+            )  # move tensor to cpu and convert to numpy
         else:
-            #Squeeze from [1, 1, 64, 64] to [1, 64, 64] only if the input is the batch
-            image_numpy = image_tensor.cpu().numpy().squeeze(0)  # move tensor to cpu and convert to numpy
+            # Squeeze from [1, 1, 64, 64] to [1, 64, 64] only if the input is the batch
+            image_numpy = (
+                image_tensor.cpu().numpy().squeeze(0)
+            )  # move tensor to cpu and convert to numpy
     else:
         if detach:
-            image_numpy = image_tensor.cpu().detach().numpy()  # move tensor to cpu and convert to numpy
+            image_numpy = (
+                image_tensor.cpu().detach().numpy()
+            )  # move tensor to cpu and convert to numpy
         else:
-            image_numpy = image_tensor.cpu().numpy() # move tensor to cpu and convert to numpy
+            image_numpy = (
+                image_tensor.cpu().numpy()
+            )  # move tensor to cpu and convert to numpy
 
     # Transpose the image to (height, width, channels) for visualization
-    image_numpy = np.transpose(image_numpy, (1, 2, 0))  # from (3, 218, 178) -> (218, 178, 3)
+    image_numpy = np.transpose(
+        image_numpy, (1, 2, 0)
+    )  # from (3, 218, 178) -> (218, 178, 3)
 
     return image_numpy
 
 
-def save_tensor(
-    image_tensor: torch.Tensor,
-    save_path: str
-) -> None:
+def save_tensor(image_tensor: torch.Tensor, save_path: str) -> None:
     img_np = image_tensor2image_numpy(image_tensor=image_tensor)
     # Convert to uint8 and scale if necessary
     img_np = (img_np * 255).astype(np.uint8) if img_np.dtype != np.uint8 else img_np
@@ -70,9 +72,7 @@ def save_tensor(
     output_image.save(save_path)
 
 
-def create_directory_if_not_exists(
-    file_path: str
-) -> None:
+def create_directory_if_not_exists(file_path: str) -> None:
     # Check the directory exist,
     # If not then create the directory
     directory = os.path.dirname(file_path)
@@ -97,14 +97,11 @@ def save_model(
     model_folder = f"{model_root}/{model_arc}/{scenario}/{dataset_name}/"
     create_directory_if_not_exists(file_path=model_folder)
     model_path = f"{model_folder}{model_name}_{train_acc}_{test_acc}.pt"
-    #model_path = f"{model_folder}{model_name}.pt"
+    # model_path = f"{model_folder}{model_name}.pt"
     torch.save(model.state_dict(), model_path)
 
 
-def get_csv_attr(
-    csv_path: str,
-    column_name: str
-) -> List:
+def get_csv_attr(csv_path: str, column_name: str) -> List:
     attr_list = []
     df = pd.read_csv(csv_path)
     for attr in df[column_name]:

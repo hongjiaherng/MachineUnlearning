@@ -1,16 +1,19 @@
 """
 Unlearning utility file
 """
-from torch.utils.data import DataLoader
-import torch
-import copy
-from torch import nn
-from tqdm import tqdm
-import numpy as np
-from src import metrics
+
 import argparse
-from typing import Tuple
+import copy
 import os
+from typing import Tuple
+
+import numpy as np
+import torch
+from torch import nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+from machineunlearning.data import metrics
 
 
 def training_optimization(
@@ -20,7 +23,7 @@ def training_optimization(
     epochs: int,
     device: torch.device,
     desc: str,
-    opt: str= "adam"
+    opt: str = "adam",
 ) -> torch.nn.Module:
     # Copy model, avoid overwriting
     trained_model = copy.deepcopy(model)
@@ -28,13 +31,13 @@ def training_optimization(
     if opt not in ["sgd", "adam"]:
         raise Exception("Select correct optimizer")
     if opt == "sgd":
-        optimizer = torch.optim.SGD(trained_model.parameters(), lr=1e-4, momentum= 0.5)
+        optimizer = torch.optim.SGD(trained_model.parameters(), lr=1e-4, momentum=0.5)
     else:
         optimizer = torch.optim.Adam(trained_model.parameters(), lr=1e-4, weight_decay=1e-4)
 
     loss_func = nn.CrossEntropyLoss().to(device)
 
-    for epoch in tqdm(range(1, epochs + 1), desc= desc):
+    for epoch in tqdm(range(1, epochs + 1), desc=desc):
         loss_list = []
         trained_model.train()
         for images, labels in train_loader:
@@ -50,16 +53,14 @@ def training_optimization(
             loss_list.append(loss.item())
 
         mean_loss = np.mean(np.array(loss_list))
-        train_acc = metrics.evaluate(val_loader= train_loader, model= trained_model, device= device)['Acc']
-        test_acc = metrics.evaluate(val_loader= test_loader, model= trained_model, device= device)['Acc']
-        tqdm.write( f"Epochs: {epoch} Train Loss: {mean_loss:.4f} Train Acc: {train_acc} Test acc: {test_acc}")
+        train_acc = metrics.evaluate(val_loader=train_loader, model=trained_model, device=device)["Acc"]
+        test_acc = metrics.evaluate(val_loader=test_loader, model=trained_model, device=device)["Acc"]
+        tqdm.write(f"Epochs: {epoch} Train Loss: {mean_loss:.4f} Train Acc: {train_acc} Test acc: {test_acc}")
 
     return trained_model
 
 
-def device_configuration(
-    args: argparse.Namespace
-) -> Tuple[torch.device, str]:
+def device_configuration(args: argparse.Namespace) -> Tuple[torch.device, str]:
     # Device configuration
     if torch.cuda.is_available() and args.gpu:
         device = torch.device("cuda")
@@ -70,9 +71,7 @@ def device_configuration(
     return device, device_name
 
 
-def create_directory_if_not_exists(
-    file_path: str
-) -> None:
+def create_directory_if_not_exists(file_path: str) -> None:
     # Check the directory exist,
     # If not then create the directory
     directory = os.path.dirname(file_path)

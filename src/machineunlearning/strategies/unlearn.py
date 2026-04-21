@@ -1,20 +1,20 @@
 """
 Unlearning tools function
 """
-import torch
-from torch.nn import functional as F
-from torch.utils.data import DataLoader, Dataset, Subset, dataset
-from src import dataset
-import numpy as np
-import torch.distributions as distributions
-from torch import nn
+
 from typing import Dict, List
 
+import numpy as np
+import torch
+import torch.distributions as distributions
+from torch import nn
+from torch.nn import functional as F
+from torch.utils.data import DataLoader, Dataset, Subset, dataset
 
-def get_classwise_ds(
-    ds: Dataset,
-    num_classes: int
-) -> Dataset:
+from machineunlearning.data import dataset
+
+
+def get_classwise_ds(ds: Dataset, num_classes: int) -> Dataset:
     classwise_ds = {}
     for i in range(num_classes):
         classwise_ds[i] = []
@@ -24,9 +24,7 @@ def get_classwise_ds(
     return classwise_ds
 
 
-def UnlearnerLoss(
-    output, labels, full_teacher_logits, unlearn_teacher_logits, KL_temperature
-):
+def UnlearnerLoss(output, labels, full_teacher_logits, unlearn_teacher_logits, KL_temperature):
     labels = torch.unsqueeze(labels, dim=1)
 
     f_teacher_out = F.softmax(full_teacher_logits / KL_temperature, dim=1)
@@ -85,9 +83,7 @@ def blindspot_unlearner(
 ):
     # creating the unlearning dataset.
     unlearning_data = dataset.UnLearningData(forget_data=forget_data, retain_data=retain_data)
-    unlearning_loader = DataLoader(
-        unlearning_data, batch_size=batch_size, shuffle=True, pin_memory=True
-    )
+    unlearning_loader = DataLoader(unlearning_data, batch_size=batch_size, shuffle=True, pin_memory=True)
 
     unlearning_teacher.eval()
     full_trained_teacher.eval()
@@ -120,9 +116,7 @@ class UNSIR_noise(torch.nn.Module):
         return self.noise
 
 
-def UNSIR_noise_train(
-    noise, model, forget_class_label, num_epochs, noise_batch_size, device="cuda"
-):
+def UNSIR_noise_train(noise, model, forget_class_label, num_epochs, noise_batch_size, device="cuda"):
     opt = torch.optim.Adam(noise.parameters(), lr=0.1)
 
     for epoch in range(num_epochs):
@@ -130,9 +124,7 @@ def UNSIR_noise_train(
         inputs = noise()
         labels = torch.zeros(noise_batch_size).to(device) + forget_class_label
         outputs = model(inputs)
-        loss = -F.cross_entropy(outputs, labels.long()) + 0.1 * torch.mean(
-            torch.sum(inputs**2, [1, 2, 3])
-        )
+        loss = -F.cross_entropy(outputs, labels.long()) + 0.1 * torch.mean(torch.sum(inputs**2, [1, 2, 3]))
         opt.zero_grad()
         loss.backward()
         opt.step()
@@ -155,24 +147,15 @@ def UNSIR_create_noisy_loader(
     for i in range(num_noise_batches):
         batch = noise()
         for i in range(batch[0].size(0)):
-            noisy_data.append(
-                (
-                    batch[i].detach().cpu(),
-                    torch.tensor(forget_class_label)
-                )
-            )
+            noisy_data.append((batch[i].detach().cpu(), torch.tensor(forget_class_label)))
     other_samples = []
     for i in range(len(retain_samples)):
-        other_samples.append(
-            (
-                retain_samples[i][0].cpu(),
-                torch.tensor(retain_samples[i][1])
-            )
-        )
+        other_samples.append((retain_samples[i][0].cpu(), torch.tensor(retain_samples[i][1])))
     noisy_data += other_samples
     noisy_loader = DataLoader(noisy_data, batch_size=batch_size, shuffle=True)
 
     return noisy_loader
+
 
 # Boundary unlearning
 class AttackBase(object):
@@ -233,12 +216,21 @@ class AttackBase(object):
                     clamp_delta[batch_index] /= image_norm
                     clamp_delta[batch_index] *= bound
         x_adv = x_nat + clamp_delta
-        x_adv = torch.clamp(x_adv, 0., 1.)
+        x_adv = torch.clamp(x_adv, 0.0, 1.0)
         return self.normalize(self.discretize(x_adv)).clone().detach().requires_grad_(True)
 
 
 class FGSM(AttackBase):
-    def __init__(self, model=None, bound=None, norm=False, random_start=False, discrete=True, device=None, **kwargs):
+    def __init__(
+        self,
+        model=None,
+        bound=None,
+        norm=False,
+        random_start=False,
+        discrete=True,
+        device=None,
+        **kwargs,
+    ):
         super(FGSM, self).__init__(model, norm, discrete, device)
         self.bound = bound
         self.rand = random_start
@@ -256,8 +248,12 @@ class FGSM(AttackBase):
         if self.rand:
             rand_perturb_dist = distributions.uniform.Uniform(-bound, bound)
             rand_perturb = rand_perturb_dist.sample(sample_shape=x_adv.shape).to(device)
-            x_adv = self.clamper(self.inverse_normalize(x_adv) + rand_perturb, x_nat, bound=bound,
-                                 inverse_normalized=True)
+            x_adv = self.clamper(
+                self.inverse_normalize(x_adv) + rand_perturb,
+                x_nat,
+                bound=bound,
+                inverse_normalized=True,
+            )
             if self.discretize:
                 x_adv = self.normalize(self.discretize(x_adv)).detach().clone().requires_grad_(True)
             else:
@@ -286,9 +282,9 @@ def inf_generator(iterable):
 
 
 def _find_z(model, inputs, targets, h):
-    '''
+    """
     Finding the direction in the regularizer
-    '''
+    """
     inputs.requires_grad_()
     outputs = model(inputs)
     loss_z = nn.CrossEntropyLoss()(model(inputs), targets)
@@ -296,8 +292,8 @@ def _find_z(model, inputs, targets, h):
     loss_z.backward()
     grad = inputs.grad.data + 0.0
     norm_grad = grad.norm().item()
-    z = torch.sign(grad).detach() + 0.  ###[64, 3, 32, 32]
-    z = 1. * (h) * (z + 1e-7) / (z.reshape(z.size(0), -1).norm(dim=1)[:, None, None, None] + 1e-7)  ###[64, 3, 32, 32]
+    z = torch.sign(grad).detach() + 0.0  ###[64, 3, 32, 32]
+    z = 1.0 * (h) * (z + 1e-7) / (z.reshape(z.size(0), -1).norm(dim=1)[:, None, None, None] + 1e-7)  ###[64, 3, 32, 32]
     # zero_gradients(inputs)
     inputs.grad.zero_()
     model.zero_grad()
@@ -305,10 +301,10 @@ def _find_z(model, inputs, targets, h):
     return z, norm_grad
 
 
-def curvature(model, inputs, targets, h=3., lambda_=4):
-    '''
+def curvature(model, inputs, targets, h=3.0, lambda_=4):
+    """
     Regularizer term in CURE
-    '''
+    """
     z, norm_grad = _find_z(model, inputs, targets, h)
 
     inputs.requires_grad_()
@@ -327,23 +323,23 @@ def curvature(model, inputs, targets, h=3., lambda_=4):
     return torch.sum(lambda_ * reg) / float(inputs.size(0)), reg
 
 
-def PM(logit, target):#[128,10], [128]
+def PM(logit, target):  # [128,10], [128]
     if logit.shape[1] == 10:
-        eye = torch.eye(10).cuda() #[10, 10]
+        eye = torch.eye(10).cuda()  # [10, 10]
     else:
         eye = torch.eye(11).cuda()
     # tmp1 = eye[target]#转one-hot
     # tmp2 = logit.softmax(1)#【128，10】
     # tmp3 = tmp1*tmp2
     # tmp3 = tmp3.sum(1)
-    probs_GT = (logit.softmax(1) * eye[target]).sum(1).detach()#[128]
-    top2_probs = logit.softmax(1).topk(2, largest = True)#[128, 2]
+    probs_GT = (logit.softmax(1) * eye[target]).sum(1).detach()  # [128]
+    top2_probs = logit.softmax(1).topk(2, largest=True)  # [128, 2]
     # tmp4 = (top2_probs[1] == target.view(-1,1)).float()#[128, 2]
     # tmp4 = tmp4.sum(1)#[128]
     # tmp4 = tmp4 == 1#[128]bool
-    GT_in_top2_ind = (top2_probs[1] == target.view(-1,1)).float().sum(1) == 1#[128]bool
-    probs_2nd = torch.where(GT_in_top2_ind, top2_probs[0].sum(1) - probs_GT, top2_probs[0][:,0]).detach()
-    return  probs_2nd - probs_GT
+    GT_in_top2_ind = (top2_probs[1] == target.view(-1, 1)).float().sum(1) == 1  # [128]bool
+    probs_2nd = torch.where(GT_in_top2_ind, top2_probs[0].sum(1) - probs_GT, top2_probs[0][:, 0]).detach()
+    return probs_2nd - probs_GT
 
 
 def weight_assign(logit, target, bias, slope):
@@ -392,16 +388,9 @@ class ParameterPerturber:
         Returns:
         dict(str,torch.Tensor): dict of zero-like params
         """
-        return dict(
-            [
-                (k, torch.zeros_like(p, device=p.device))
-                for k, p in model.named_parameters()
-            ]
-        )
+        return dict([(k, torch.zeros_like(p, device=p.device)) for k, p in model.named_parameters()])
 
-    def fulllike_params_dict(
-        self, model: torch.nn, fill_value, as_tensor: bool = False
-    ) -> Dict[str, torch.Tensor]:
+    def fulllike_params_dict(self, model: torch.nn, fill_value, as_tensor: bool = False) -> Dict[str, torch.Tensor]:
         """
         Returns a dict like named_parameters(), with parameter values replaced with fill_value
 
@@ -488,9 +477,7 @@ class ParameterPerturber:
             loss = criterion(out, y)
             loss.backward()
 
-            for (k1, p), (k2, imp) in zip(
-                self.model.named_parameters(), importances.items()
-            ):
+            for (k1, p), (k2, imp) in zip(self.model.named_parameters(), importances.items()):
                 if p.grad is not None:
                     imp.data += p.grad.data.clone().pow(2)
 
@@ -527,9 +514,7 @@ class ParameterPerturber:
                 locations = torch.where(fimp > oimp_norm)
 
                 # Synapse Dampening with parameter lambda
-                weight = ((oimp.mul(self.dampening_constant)).div(fimp)).pow(
-                    self.exponent
-                )
+                weight = ((oimp.mul(self.dampening_constant)).div(fimp)).pow(self.exponent)
                 update = weight[locations]
                 # Bound by 1 to prevent parameter values to increase.
                 min_locs = torch.where(update > self.lower_bound)
@@ -540,36 +525,32 @@ class ParameterPerturber:
 # SCRUB
 class DistillKL(nn.Module):
     """Distilling the Knowledge in a Neural Network"""
+
     def __init__(self, T):
         super(DistillKL, self).__init__()
         self.T = T
 
     def forward(self, y_s, y_t):
-        p_s = F.log_softmax(y_s/self.T, dim=1)
-        p_t = F.softmax(y_t/self.T, dim=1)
+        p_s = F.log_softmax(y_s / self.T, dim=1)
+        p_t = F.softmax(y_t / self.T, dim=1)
         loss = F.kl_div(p_s, p_t, size_average=False) * (self.T**2) / y_s.shape[0]
         return loss
 
 
-def adjust_learning_rate(
-    epoch,
-    optimizer,
-    lr_decay_epochs,
-    sgda_learning_rate,
-    lr_decay_rate
-):
+def adjust_learning_rate(epoch, optimizer, lr_decay_epochs, sgda_learning_rate, lr_decay_rate):
     """Sets the learning rate to the initial LR decayed by decay rate every steep step"""
     steps = np.sum(epoch > np.asarray(lr_decay_epochs))
     new_lr = sgda_learning_rate
     if steps > 0:
-        new_lr = sgda_learning_rate * (lr_decay_rate ** steps)
+        new_lr = sgda_learning_rate * (lr_decay_rate**steps)
         for param_group in optimizer.param_groups:
-            param_group['lr'] = new_lr
+            param_group["lr"] = new_lr
     return new_lr
 
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
@@ -614,7 +595,7 @@ def train_distill(
     alpha,
     beta,
     split,
-    quiet=False
+    quiet=False,
 ):
     """One epoch distillation"""
     # set modules as train()
@@ -682,8 +663,7 @@ def train_distill(
 
     if split == "minimize":
         if not quiet:
-            print(' * Acc@1 {top1.avg:.3f} '
-                  .format(top1=top1))
+            print(" * Acc@1 {top1.avg:.3f} ".format(top1=top1))
 
         return top1.avg, losses.avg
     else:

@@ -7,8 +7,9 @@ ResNet PyTorch Implementation
     https://arxiv.org/abs/1512.03385v1
 Source: https://github.com/weiaicunzai/pytorch-cifar100
 """
-import torch
+
 import torch.nn as nn
+
 
 class BasicBlock(nn.Module):
     """Basic Block for resnet 18 and resnet 34"""
@@ -114,7 +115,7 @@ class BottleNeck(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_block, num_classes=100, input_channel= 3):
+    def __init__(self, block, num_block, num_classes=100, input_channel=3):
         super().__init__()
 
         self.in_channels = 64
