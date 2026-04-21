@@ -13,7 +13,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from machineunlearning.data import metrics
+from machineunlearning.evaluation import metrics
 
 
 def training_optimization(

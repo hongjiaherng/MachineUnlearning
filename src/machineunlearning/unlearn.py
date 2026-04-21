@@ -4,7 +4,8 @@ import time
 import torch
 from torch.utils.data import DataLoader
 
-from machineunlearning.data import dataset, metrics, utils
+from machineunlearning.data import dataset, utils
+from machineunlearning.evaluation import metrics
 from machineunlearning.model import models
 from machineunlearning.strategies import strategies
 
