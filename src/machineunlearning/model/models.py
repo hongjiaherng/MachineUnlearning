@@ -35,10 +35,10 @@ def ResNet152(num_classes, input_channels):
 
 
 class MLP(nn.Module):
-    def __init__(self, num_classes, input_channels, image_size=32, hidden=(256, 128)):
+    def __init__(self, num_classes, input_channels, hidden=(256, 128)):
         super().__init__()
-        in_dim = input_channels * image_size * image_size
-        self.f_connected1 = nn.Linear(in_dim, hidden[0])
+        del input_channels  # input_dim inferred lazily
+        self.f_connected1 = nn.LazyLinear(hidden[0])
         self.f_connected2 = nn.Linear(hidden[0], hidden[1])
         self.out = nn.Linear(hidden[1], num_classes)
 
@@ -50,29 +50,30 @@ class MLP(nn.Module):
 
 
 class SimpleCNN(nn.Module):
-    def __init__(self, num_classes, input_channels, image_size=32):
+    def __init__(self, num_classes, input_channels):
         super().__init__()
         self.conv1 = nn.Conv2d(input_channels, 16, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
         self.conv3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        feat = image_size // 8
-        self.fc1 = nn.Linear(64 * feat * feat, 128)
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc1 = nn.Linear(64, 128)
         self.fc2 = nn.Linear(128, num_classes)
 
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = self.pool(F.relu(self.conv3(x)))
-        x = x.view(x.size(0), -1)
+        x = self.global_pool(x).flatten(1)
         x = F.relu(self.fc1(x))
         return self.fc2(x)
 
 
 class LRTorchNet(nn.Module):
-    def __init__(self, num_classes, input_channels, image_size=32):
+    def __init__(self, num_classes, input_channels):
         super().__init__()
-        self.linear = nn.Linear(input_channels * image_size * image_size, num_classes)
+        del input_channels
+        self.linear = nn.LazyLinear(num_classes)
 
     def forward(self, x):
         x = x.view(x.size(0), -1)

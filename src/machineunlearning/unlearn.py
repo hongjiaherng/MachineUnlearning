@@ -46,6 +46,12 @@ def main(cfg: DictConfig) -> None:
     model = MODEL_REGISTRY[cfg.model.name](num_classes=num_classes, input_channels=num_channels).to(device)
     unlearning_teacher = MODEL_REGISTRY[cfg.model.name](num_classes=num_classes, input_channels=num_channels).to(device)
 
+    # Materialize LazyLinear weights so state_dict shapes match before loading.
+    sample_x, _ = next(iter(test_loader))
+    with torch.no_grad():
+        model(sample_x.to(device))
+        unlearning_teacher(sample_x.to(device))
+
     if cfg.strategy.name != "retrain":
         checkpoint = torch.load(cfg.model_path, map_location=device, weights_only=False)
         state_dict = checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint

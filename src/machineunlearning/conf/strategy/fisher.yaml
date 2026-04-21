@@ -2,3 +2,6 @@ name: fisher
 epochs: 0
 params:
   alpha: 1e-6
+  # Batch size for vmap'd Fisher accumulation. Original reference repo runs
+  # this at 1; vmap lets us fuse per-sample gradients across a batch.
+  fisher_batch_size: 128
