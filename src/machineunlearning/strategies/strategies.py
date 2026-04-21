@@ -15,7 +15,6 @@ from torch import nn
 from torch.utils.data import ConcatDataset, DataLoader
 from tqdm import tqdm
 
-from machineunlearning.evaluation import metrics
 from machineunlearning.strategies import _attack, _bad_teacher, _training, _unsir
 from machineunlearning.strategies._attack import FGSM
 from machineunlearning.strategies._distill import DistillKL, adjust_learning_rate, train_distill
@@ -108,8 +107,7 @@ def gradient_ascent(
     optimizer = torch.optim.SGD(unlearned_model.parameters(), lr=1e-4, momentum=0.5)
     loss_func = nn.CrossEntropyLoss().to(device)
 
-    for epoch in tqdm(range(1, epochs + 1), desc="Gradient ascent unlearning"):
-        loss_list = []
+    for _epoch in tqdm(range(1, epochs + 1), desc="Gradient ascent unlearning"):
         for images, labels in unlearn_loader:
             images, labels = images.to(device), labels.long().to(device)
             unlearned_model.zero_grad()
@@ -118,12 +116,6 @@ def gradient_ascent(
             loss = 1 - loss_func(output, labels)
             loss.backward()
             optimizer.step()
-            loss_list.append(loss.item())
-
-        mean_loss = np.mean(np.array(loss_list))
-        train_acc = metrics.evaluate(model=unlearned_model, dataloader=retain_loader, device=device)["Acc"]
-        test_acc = metrics.evaluate(model=unlearned_model, dataloader=test_loader, device=device)["Acc"]
-        # tqdm.write(f"Epochs: {epoch} Train Loss: {mean_loss:.4f} Train Acc: {train_acc} Test acc: {test_acc}")
 
     return unlearned_model
 
@@ -179,19 +171,12 @@ def scrub(
 ) -> torch.nn.Module:
 
     # Parameters
-    optim = "sgd"
     gamma = 0.99
     alpha = 0.001
     beta = 0
-    smoothing = 0.0
     msteps = 2
-    clip = 0.2
-    sstart = 10
     kd_T = 4
-    distill = "kd"
 
-    sgda_batch_size = 128
-    del_batch_size = 32
     sgda_epochs = 3
     sgda_learning_rate = 0.0005
     lr_decay_epochs = [3, 5, 9]
@@ -231,7 +216,7 @@ def scrub(
         cudnn.benchmark = True
 
     for epoch in tqdm(range(1, sgda_epochs + 1), desc="SCRUB Unlearning"):
-        lr = adjust_learning_rate(
+        adjust_learning_rate(
             epoch=epoch,
             optimizer=optimizer,
             lr_decay_epochs=lr_decay_epochs,
@@ -239,9 +224,8 @@ def scrub(
             lr_decay_rate=lr_decay_rate,
         )
 
-        maximize_loss = 0
         if epoch <= msteps:
-            maximize_loss = train_distill(
+            train_distill(
                 epoch=epoch,
                 train_loader=unlearn_loader,
                 module_list=module_list,
@@ -253,7 +237,7 @@ def scrub(
                 beta=beta,
                 split="maximize",
             )
-        train_acc, train_loss = train_distill(
+        train_distill(
             epoch=epoch,
             train_loader=retain_loader,
             module_list=module_list,
@@ -349,11 +333,7 @@ def boundary(
 
     optimizer = torch.optim.SGD(unlearn_model.parameters(), lr=0.00001, momentum=0.9)
 
-    num_hits = 0
-    num_sum = 0
-    nearest_label = []
-
-    for itr in tqdm(range(poison_epoch * batches_per_epoch)):
+    for _itr in tqdm(range(poison_epoch * batches_per_epoch)):
         x, y = forget_data_gen.__next__()
         x = x.to(device)
         y = y.to(device)
@@ -361,12 +341,7 @@ def boundary(
         x_adv = adv.perturb(x, y, target_y=None, model=test_model, device=device)
         adv_logits = test_model(x_adv)
         pred_label = torch.argmax(adv_logits, dim=1)
-        if itr >= (poison_epoch - 1) * batches_per_epoch:
-            nearest_label.append(pred_label.tolist())
-        num_hits += (y != pred_label).float().sum()
-        num_sum += y.shape[0]
 
-        # adv_train
         unlearn_model.train()
         unlearn_model.zero_grad()
         optimizer.zero_grad()
@@ -374,18 +349,17 @@ def boundary(
         ori_logits = unlearn_model(x)
         ori_loss = criterion(ori_logits, pred_label)
 
-        # loss = ori_loss  # - KL_div
         if extra_exp == "curv":
             ori_curv = _attack.curvature(model, x, y, h=0.9)[1]
             cur_curv = _attack.curvature(unlearn_model, x, y, h=0.9)[1]
             delta_curv = torch.norm(ori_curv - cur_curv, p=2)
-            loss = ori_loss + lambda_ * delta_curv  # - KL_div
+            loss = ori_loss + lambda_ * delta_curv
         elif extra_exp == "weight_assign":
             weight = _attack.weight_assign(adv_logits, pred_label, bias=bias, slope=slope)
             ori_loss = (torch.nn.functional.cross_entropy(ori_logits, pred_label, reduction="none") * weight).mean()
             loss = ori_loss
         else:
-            loss = ori_loss  # - KL_div
+            loss = ori_loss
         loss.backward()
         optimizer.step()
     return unlearn_model
@@ -405,22 +379,20 @@ def ntk(
     device: torch.device,
 ) -> torch.nn.Module:
 
-    def delta_w_utils(model_init, dataloader, name="complete"):
+    def delta_w_utils(model_init, dataloader):
         model_init.eval()
         dataloader = torch.utils.data.DataLoader(dataloader.dataset, batch_size=1, shuffle=False)
         G_list = []
         f0_minus_y = []
-        for idx, batch in enumerate(tqdm(dataloader)):  # (tqdm(dataloader,leave=False)):
+        for batch in tqdm(dataloader):
             batch = [tensor.to(next(model_init.parameters()).device) for tensor in batch]
             input, target = batch
 
             target = target.cpu().detach().numpy()
             output = model_init(input)
-            G_sample = []
             for cls in range(num_classes):
                 grads = torch.autograd.grad(output[0, cls], model_init.parameters(), retain_graph=True)
                 grads = np.concatenate([g.view(-1).cpu().numpy() for g in grads])
-                G_sample.append(grads)
                 G_list.append(grads)
                 p = torch.nn.functional.softmax(output, dim=1).cpu().detach().numpy().transpose()
                 p[target] -= 1
@@ -428,74 +400,25 @@ def ntk(
             f0_minus_y.append(f0_y_update)
         return np.stack(G_list).transpose(), np.vstack(f0_minus_y)
 
-    #############################################################################################
     model_init = deepcopy(model)
-    G_r, f0_minus_y_r = delta_w_utils(deepcopy(model), retain_loader, "complete")
-    print("GOT GR")
-    # np.save('NTK_data/G_r.npy',G_r)
-    # np.save('NTK_data/f0_minus_y_r.npy',f0_minus_y_r)
-    # del G_r, f0_minus_y_r
-
-    G_f, f0_minus_y_f = delta_w_utils(deepcopy(model), unlearn_loader, "retain")
-    print("GOT GF")
-    # np.save('NTK_data/G_f.npy',G_f)
-    # np.save('NTK_data/f0_minus_y_f.npy',f0_minus_y_f)
-    # del G_f, f0_minus_y_f
-
-    # G_r = np.load('NTK_data/G_r.npy')
-    # G_f = np.load('NTK_data/G_f.npy')
+    G_r, f0_minus_y_r = delta_w_utils(deepcopy(model), retain_loader)
+    G_f, f0_minus_y_f = delta_w_utils(deepcopy(model), unlearn_loader)
     G = np.concatenate([G_r, G_f], axis=1)
-    print("GOT G")
-    # np.save('NTK_data/G.npy',G)
-    # del G, G_f, G_r
-
-    # f0_minus_y_r = np.load('NTK_data/f0_minus_y_r.npy')
-    # f0_minus_y_f = np.load('NTK_data/f0_minus_y_f.npy')
     f0_minus_y = np.concatenate([f0_minus_y_r, f0_minus_y_f])
 
-    # np.save('NTK_data/f0_minus_y.npy',f0_minus_y)
-    # del f0_minus_y, f0_minus_y_r, f0_minus_y_f
-
     weight_decay = 0.1
-
-    # G = np.load('NTK_data/G.npy')
     theta = G.transpose().dot(G) + (len(retain_loader.dataset) + len(unlearn_loader.dataset)) * weight_decay * np.eye(
         G.shape[1]
     )
-    # del G
-
     theta_inv = np.linalg.inv(theta)
-
-    # np.save('NTK_data/theta.npy',theta)
-    # del theta
-
-    # G = np.load('NTK_data/G.npy')
-    # f0_minus_y = np.load('NTK_data/f0_minus_y.npy')
     w_complete = -G.dot(theta_inv.dot(f0_minus_y))
 
-    # np.save('NTK_data/theta_inv.npy',theta_inv)
-    # np.save('NTK_data/w_complete.npy',w_complete)
-    # del G, f0_minus_y, theta_inv, w_complete
-
-    # G_r = np.load('NTK_data/G_r.npy')
     num_to_retain = len(retain_loader.dataset)
     theta_r = G_r.transpose().dot(G_r) + num_to_retain * weight_decay * np.eye(G_r.shape[1])
-    # del G_r
-
     theta_r_inv = np.linalg.inv(theta_r)
-    # np.save('NTK_data/theta_r.npy',theta_r)
-    # del theta_r
-
-    # G_r = np.load('NTK_data/G_r.npy')
-    # f0_minus_y_r = np.load('NTK_data/f0_minus_y_r.npy')
     w_retain = -G_r.dot(theta_r_inv.dot(f0_minus_y_r))
 
-    # np.save('NTK_data/theta_r_inv.npy',theta_r_inv)
-    # np.save('NTK_data/w_retain.npy',w_retain)
-    # del G_r, f0_minus_y_r, theta_r_inv, w_retain
-
     def get_delta_w_dict(delta_w, model):
-        # Give normalized delta_w
         delta_w_dict = OrderedDict()
         params_visited = 0
         for k, p in model.named_parameters():
@@ -505,20 +428,8 @@ def ntk(
             params_visited += num_params
         return delta_w_dict
 
-    #### Scrubbing Direction
-    # w_complete = np.load('NTK_data/w_complete.npy')
-    # w_retain = np.load('NTK_data/w_retain.npy')
-    print("got prelims, calculating delta_w")
     delta_w = (w_retain - w_complete).squeeze()
-    print("got delta_w")
-    # delta_w_copy = deepcopy(delta_w)
-    # delta_w_actual = vectorize_params(model0)-vectorize_params(model)
 
-    # print(f'Actual Norm-: {np.linalg.norm(delta_w_actual)}')
-    # print(f'Predtn Norm-: {np.linalg.norm(delta_w)}')
-    # scale_ratio = np.linalg.norm(delta_w_actual)/np.linalg.norm(delta_w)
-    # print('Actual Scale: {}'.format(scale_ratio))
-    # log_dict['actual_scale_ratio']=scale_ratio
     def vectorize_params(model):
         param = []
         for p in model.parameters():
@@ -526,36 +437,16 @@ def ntk(
         return np.concatenate(param)
 
     m_pred_error = vectorize_params(model) - vectorize_params(model_init) - w_retain.squeeze()
-    print(f"Delta w -------: {np.linalg.norm(delta_w)}")
-
     inner = np.inner(delta_w / np.linalg.norm(delta_w), m_pred_error / np.linalg.norm(m_pred_error))
-    print(f"Inner Product--: {inner}")
 
     if inner < 0:
         angle = np.arccos(inner) - np.pi / 2
-        print(f"Angle----------:  {angle}")
-
         predicted_norm = np.linalg.norm(delta_w) + 2 * np.sin(angle) * np.linalg.norm(m_pred_error)
-        print(f"Pred Act Norm--:  {predicted_norm}")
     else:
         angle = np.arccos(inner)
-        print(f"Angle----------:  {angle}")
-
         predicted_norm = np.linalg.norm(delta_w) + 2 * np.cos(angle) * np.linalg.norm(m_pred_error)
-        print(f"Pred Act Norm--:  {predicted_norm}")
 
-    predicted_scale = predicted_norm / np.linalg.norm(delta_w)
-    predicted_scale
-    print(f"Predicted Scale:  {predicted_scale}")
-    # log_dict['predicted_scale_ratio']=predicted_scale
-
-    # def NIP(v1,v2):
-    #     nip = (np.inner(v1/np.linalg.norm(v1),v2/np.linalg.norm(v2)))
-    #     print(nip)
-    #     return nip
-    # nip=NIP(delta_w_actual,delta_w)
-    # log_dict['nip']=nip
-    scale = predicted_scale
+    scale = predicted_norm / np.linalg.norm(delta_w)
     direction = get_delta_w_dict(delta_w, model)
 
     for k, p in model.named_parameters():
@@ -606,7 +497,7 @@ def fisher(
             p.grad_acc /= len(train_loader)
             p.grad2_acc /= len(train_loader)
 
-    def get_mean_var(p, forget_class, is_base_dist=False, alpha=3e-6):
+    def get_mean_var(p, forget_class, alpha=3e-6):
         var = deepcopy(1.0 / (p.grad2_acc + 1e-8))
         var = var.clamp(max=1e3)
         if p.size(0) == num_classes:
@@ -615,20 +506,15 @@ def fisher(
 
         if p.ndim > 1:
             var = var.mean(dim=1, keepdim=True).expand_as(p).clone()
-        if not is_base_dist:
-            mu = deepcopy(p.data0.clone())
-        else:
-            mu = deepcopy(p.data0.clone())
+        mu = deepcopy(p.data0.clone())
         if p.size(0) == num_classes:
             mu[forget_class] = 0
             var[forget_class] = 0.0001
-        if p.size(0) == num_classes:
             # Last layer
             var *= 10
         elif p.ndim == 1:
             # BatchNorm
             var *= 10
-        #         var*=1
         return mu, var
 
     for p in model.parameters():
@@ -636,12 +522,10 @@ def fisher(
 
     hessian(retain_loader.dataset, model)
 
-    fisher_dir = []
     alpha = 1e-6
-    for i, p in enumerate(model.parameters()):
-        mu, var = get_mean_var(p, unlearn_class, False, alpha=alpha)
+    for p in model.parameters():
+        mu, var = get_mean_var(p, unlearn_class, alpha=alpha)
         p.data = mu + var.sqrt() * torch.empty_like(p.data0).normal_()
-        fisher_dir.append(var.sqrt().view(-1).cpu().detach().numpy())
 
     return model
 
