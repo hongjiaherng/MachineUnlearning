@@ -23,29 +23,31 @@ def accuracy(outputs, labels):
     return torch.tensor(torch.sum(preds == labels).item() / len(preds)) * 100
 
 
-def validation_step(model, batch, device):
-    images, clabels = batch
-    images, clabels = images.to(device), clabels.long().to(device)
-    out = model(images)  # Generate predictions
-    loss = F.cross_entropy(out, clabels)  # Calculate loss
-    acc = accuracy(out, clabels)  # Calculate accuracy
-    return {"Loss": loss.detach(), "Acc": acc}
-
-
-def validation_epoch_end(model, outputs):
-    batch_losses = [x["Loss"] for x in outputs]
-    epoch_loss = torch.stack(batch_losses).mean()  # Combine losses
-    batch_accs = [x["Acc"] for x in outputs]
-    epoch_acc = torch.stack(batch_accs).mean()  # Combine accuracies
-    return {"Loss": round(epoch_loss.item(), 4), "Acc": round(epoch_acc.item(), 4)}
-
-
 @torch.no_grad()
-def evaluate(model, val_loader, device):
-    copy_model = copy.deepcopy(model)
-    copy_model.eval()
-    outputs = [validation_step(copy_model, batch, device) for batch in val_loader]
-    return validation_epoch_end(copy_model, outputs)
+def evaluate(model, dataloader, device):
+    model.eval()
+
+    loss_fn = torch.nn.CrossEntropyLoss()
+
+    total = 0
+    correct = 0
+    loss_sum = 0.0
+
+    for images, labels in dataloader:
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
+
+        outputs = model(images)
+        loss = loss_fn(outputs, labels)
+
+        loss_sum += loss.item() * images.size(0)
+        correct += (outputs.argmax(1) == labels).sum().item()
+        total += labels.size(0)
+
+    return {
+        "Loss": loss_sum / total,
+        "Acc": correct / total,
+    }
 
 
 def collect_entropy(data_loader: DataLoader, model: torch.nn.Module, device: torch.device) -> np.array:
@@ -55,7 +57,10 @@ def collect_entropy(data_loader: DataLoader, model: torch.nn.Module, device: tor
 
 
 def plot_entropy(
-    data_loader: DataLoader, original_model: torch.nn.Module, unlearn_model: torch.nn.Module, device: torch.device
+    data_loader: DataLoader,
+    original_model: torch.nn.Module,
+    unlearn_model: torch.nn.Module,
+    device: torch.device,
 ) -> None:
     original_enp = collect_entropy(data_loader=data_loader, model=original_model, device=device)
     unlearn_enp = collect_entropy(data_loader=data_loader, model=unlearn_model, device=device)
@@ -144,6 +149,11 @@ def model_evaluation(
 
     retain_acc = evaluate(val_loader=retain_loader, model=model, device=device)["Acc"]
     unlearn_acc = evaluate(val_loader=unlearn_loader, model=model, device=device)["Acc"]
-    mia_asr = mia(retain_loader=retain_loader, forget_loader=unlearn_loader, test_loader=test_loader, model=model)
+    mia_asr = mia(
+        retain_loader=retain_loader,
+        forget_loader=unlearn_loader,
+        test_loader=test_loader,
+        model=model,
+    )
 
     return retain_acc, unlearn_acc, mia_asr

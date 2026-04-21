@@ -1,7 +1,6 @@
-import argparse
 import os
 import random
-from typing import List, Tuple
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -10,25 +9,14 @@ from PIL import Image
 
 
 def set_seed(seed: int) -> None:
-    torch.manual_seed(seed)
-    np.random.seed(seed)
     random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
-def device_configuration(args: argparse.Namespace) -> Tuple[torch.device, str]:
-    # Device configuration
-    if torch.cuda.is_available() and args.gpu:
-        device = torch.device("cuda")
-        device_name = f"({torch.cuda.get_device_name(0)})"
-    else:
-        device = torch.device("cpu")
-        device_name = ""
-    return device, device_name
-
-
-def image_tensor2image_numpy(
-    image_tensor: torch.Tensor, squeeze: bool = False, detach: bool = False
-) -> np.array:
+def image_tensor2image_numpy(image_tensor: torch.Tensor, squeeze: bool = False, detach: bool = False) -> np.array:
     """
     Input:
         image_tensor= Image in tensor type
@@ -38,28 +26,18 @@ def image_tensor2image_numpy(
     """
     if squeeze:
         if detach:
-            image_numpy = (
-                image_tensor.cpu().detach().numpy().squeeze(0)
-            )  # move tensor to cpu and convert to numpy
+            image_numpy = image_tensor.cpu().detach().numpy().squeeze(0)  # move tensor to cpu and convert to numpy
         else:
             # Squeeze from [1, 1, 64, 64] to [1, 64, 64] only if the input is the batch
-            image_numpy = (
-                image_tensor.cpu().numpy().squeeze(0)
-            )  # move tensor to cpu and convert to numpy
+            image_numpy = image_tensor.cpu().numpy().squeeze(0)  # move tensor to cpu and convert to numpy
     else:
         if detach:
-            image_numpy = (
-                image_tensor.cpu().detach().numpy()
-            )  # move tensor to cpu and convert to numpy
+            image_numpy = image_tensor.cpu().detach().numpy()  # move tensor to cpu and convert to numpy
         else:
-            image_numpy = (
-                image_tensor.cpu().numpy()
-            )  # move tensor to cpu and convert to numpy
+            image_numpy = image_tensor.cpu().numpy()  # move tensor to cpu and convert to numpy
 
     # Transpose the image to (height, width, channels) for visualization
-    image_numpy = np.transpose(
-        image_numpy, (1, 2, 0)
-    )  # from (3, 218, 178) -> (218, 178, 3)
+    image_numpy = np.transpose(image_numpy, (1, 2, 0))  # from (3, 218, 178) -> (218, 178, 3)
 
     return image_numpy
 
@@ -93,15 +71,44 @@ def save_model(
     dataset_name: str,
     train_acc: float,
     test_acc: float,
-) -> None:
-    model_folder = f"{model_root}/{model_arc}/{scenario}/{dataset_name}/"
-    create_directory_if_not_exists(file_path=model_folder)
-    model_path = f"{model_folder}{model_name}_{train_acc}_{test_acc}.pt"
-    # model_path = f"{model_folder}{model_name}.pt"
-    torch.save(model.state_dict(), model_path)
+    optimizer: torch.optim.Optimizer | None = None,
+    epoch: int | None = None,
+    args: dict | None = None,
+    save_optimizer: bool = False,
+) -> Path:
+    # ===== Build path =====
+    model_folder = Path(model_root) / model_arc / scenario / dataset_name
+    model_folder.mkdir(parents=True, exist_ok=True)
+
+    # Cleaner filename (avoid long floats)
+    train_str = f"{train_acc:.4f}"
+    test_str = f"{test_acc:.4f}"
+
+    model_path = model_folder / f"{model_name}_train{train_str}_test{test_str}.pt"
+
+    # ===== Build checkpoint =====
+    checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "train_acc": train_acc,
+        "test_acc": test_acc,
+    }
+
+    if epoch is not None:
+        checkpoint["epoch"] = epoch
+
+    if args is not None:
+        checkpoint["args"] = args
+
+    if save_optimizer and optimizer is not None:
+        checkpoint["optimizer_state_dict"] = optimizer.state_dict()
+
+    # ===== Save =====
+    torch.save(checkpoint, model_path)
+
+    return model_path
 
 
-def get_csv_attr(csv_path: str, column_name: str) -> List:
+def get_csv_attr(csv_path: str, column_name: str) -> list:
     attr_list = []
     df = pd.read_csv(csv_path)
     for attr in df[column_name]:

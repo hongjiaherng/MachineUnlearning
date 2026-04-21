@@ -1,5 +1,5 @@
 import argparse
-import copy
+import warnings
 
 import numpy as np
 import torch
@@ -8,27 +8,30 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from machineunlearning.data import dataset, metrics, utils
-from machineunlearning.model import models
+from machineunlearning.model import MODEL_REGISTRY
+
+warnings.filterwarnings("ignore", category=np.exceptions.VisibleDeprecationWarning)
 
 
-def main() -> None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--gpu", type=bool, default=True, help="use gpu or not")
-    parser.add_argument("--root", type=str, default="./data", help="Dataset root directory")
+    parser.add_argument("--no-gpu", action="store_true")
+    parser.add_argument("--root", type=str, default="./data")
     parser.add_argument(
         "--dataset",
         type=str,
         help="Dataset configuration",
         choices=["MNIST", "FashionMNIST", "CIFAR10", "CIFAR20", "CIFAR100", "TinyImagenet"],
+        required=True,
     )
-    parser.add_argument("--model_root", type=str, default="./checkpoint", help="Model root directory")
-    parser.add_argument("--model", type=str, default="ResNet18", help="Model selection")
-    parser.add_argument("--save_model", type=bool, default=True, help="Save trained model option")
-    parser.add_argument("--epochs", type=int, default=30, help="Training epochs")
-    parser.add_argument("--batch_size", type=int, default=128, help="Training batch size")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--model_root", type=str, default="./checkpoint")
+    parser.add_argument("--model", type=str, default="ResNet18", choices=list(MODEL_REGISTRY.keys()))
+    parser.add_argument("--save_model", action="store_true", default=True)
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--optimizer", type=str, default="adam", choices=["sgd", "adam"])
-    parser.add_argument("--momentum", type=float, default=0.5, help="SGD momentum (default: 0.5)")
+    parser.add_argument("--momentum", type=float, default=0.5)
     parser.add_argument(
         "--scenario",
         type=str,
@@ -36,91 +39,154 @@ def main() -> None:
         choices=["class", "client", "sample"],
         help="Training and unlearning scenario",
     )
-    parser.add_argument(
-        "--verbose",
-        type=bool,
-        default=False,
-        help="option to show training performance",
-    )
-    parser.add_argument(
-        "--report_interval",
-        type=int,
-        default=5,
-        help="training performance report interval",
-    )
-    parser.add_argument("--seed", type=int, default=0, help="Seed for runs")
+    parser.add_argument("--report_interval", type=int, default=5)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--num_workers", type=int, default=0)
     args = parser.parse_args()
 
+    return args
+
+
+def main() -> None:
+    args = parse_args()
+
     print("Training configuration:")
-    for arg in vars(args):
-        print(f"{arg}: {getattr(args, arg)}")
+    for k, v in vars(args).items():
+        print(f"{k:<20}: {v}")
 
     utils.set_seed(seed=args.seed)
 
-    device, device_name = utils.device_configuration(args=args)
+    # ===== Device =====
+    use_gpu = not args.no_gpu
+    device = torch.device("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
 
+    # ===== Dataset =====
     train_dataset, test_dataset, num_classes, num_channels = dataset.get_dataset(
-        dataset_name=args.dataset, root=args.root
+        dataset_name=args.dataset,
+        root=args.root,
+        augment=True,
+    )
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        pin_memory=device.type == "cuda",
+        num_workers=args.num_workers,
+    )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        pin_memory=device.type == "cuda",
+        num_workers=args.num_workers,
     )
 
-    # TODO: pin memory and num_workers options
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    # ===== Model =====
+    model = MODEL_REGISTRY[args.model](num_classes=num_classes, input_channels=num_channels).to(device)
 
-    # TODO: don't like trick like this
-    model = getattr(models, args.model)(num_classes=num_classes, input_channels=num_channels).to(device)
-
-    if args.optimizer not in ["sgd", "adam"]:
-        raise Exception("select correct optimizer")
+    # ===== Optimizer =====
+    assert args.optimizer in ["sgd", "adam"], "select correct optimizer"
     if args.optimizer == "sgd":
         optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
     else:
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
     loss_func = nn.CrossEntropyLoss().to(device)
+
+    # ===== Training =====
     max_test_acc = 0.0
     max_train_acc = 0.0
 
-    for epoch in tqdm(range(1, args.epochs + 1)):
-        loss_list = []
-        model.train()
-        for images, labels in train_loader:
-            images = images.to(device)
-            labels = labels.long().to(device)
+    outer_pbar = tqdm(range(1, args.epochs + 1), desc="Training", unit="epoch")
 
-            model.zero_grad()
+    for epoch in outer_pbar:
+        model.train()
+
+        running_loss = 0.0
+        correct = 0
+        total = 0
+
+        inner_pbar = tqdm(
+            train_loader,
+            desc=f"Epoch {epoch:03d}",
+            unit="batch",
+            leave=False,
+            dynamic_ncols=True,
+        )
+
+        for images, labels in inner_pbar:
+            images = images.to(device, non_blocking=True)
+            labels = labels.long().to(device, non_blocking=True)
+
+            optimizer.zero_grad()
+
             output = model(images)
             loss = loss_func(output, labels)
+
             loss.backward()
             optimizer.step()
 
-            # TODO: slow
-            loss_list.append(loss.item())
+            batch_size = images.size(0)
+            running_loss += loss.item() * batch_size
+            correct += (output.argmax(dim=1) == labels).sum().item()
+            total += batch_size
 
-        mean_loss = np.mean(np.array(loss_list))
-        train_acc = metrics.evaluate(val_loader=train_loader, model=model, device=device)["Acc"]
-        test_acc = metrics.evaluate(val_loader=test_loader, model=model, device=device)["Acc"]
-        if args.verbose:
-            tqdm.write(f"Epochs: {epoch} Train Loss: {mean_loss:.4f} Train Acc: {train_acc} Test Acc: {test_acc}")
+            inner_pbar.set_postfix(
+                loss=f"{running_loss / total:.4f}",
+                acc=f"{correct / total:.4f}",
+            )
 
-        if test_acc >= max_test_acc:
+        train_loss = running_loss / total
+        train_acc = correct / total
+
+        test_metric = metrics.evaluate(model, test_loader, device)
+        test_acc = test_metric["Acc"]
+
+        outer_pbar.set_postfix(
+            loss=f"{train_loss:.4f}",
+            train=f"{train_acc:.3f}",
+            test=f"{test_acc:.3f}",
+        )
+
+        if test_acc > max_test_acc:
             max_test_acc = test_acc
             max_train_acc = train_acc
-            best_model = copy.deepcopy(
-                model
-            )  # TODO: slow, can be optimized by saving the state dict instead of the whole model, we should save to disk instead of keeping in memory for large models and datasets, but for simplicity we keep it in memory here
 
-    utils.save_model(
-        model_arc=args.model,
-        model=best_model,
-        scenario=args.scenario,
-        model_name="baseline",
-        model_root=args.model_root,
-        dataset_name=args.dataset,
-        train_acc=max_train_acc,
-        test_acc=max_test_acc,
-    )
+            if args.save_model:
+                save_path = utils.save_model(
+                    model_arc=args.model,
+                    model=model,
+                    scenario=args.scenario,
+                    model_name="best",
+                    model_root=args.model_root,
+                    dataset_name=args.dataset,
+                    train_acc=train_acc,
+                    test_acc=test_acc,
+                    optimizer=optimizer,
+                    epoch=epoch,
+                    args=vars(args),
+                    save_optimizer=True,
+                )
+                tqdm.write(
+                    f"New Best @ Epoch {epoch:03d} | Loss {train_loss:.4f} | Train {train_acc:.4f} | Test {test_acc:.4f}"
+                )
 
+    tqdm.write(f"Best | Train: {max_train_acc:.4f} | Test: {max_test_acc:.4f}")
 
-if __name__ == "__main__":
-    main()
+    # Save final model
+    if args.save_model:
+        save_path = utils.save_model(
+            model_arc=args.model,
+            model=model,
+            scenario=args.scenario,
+            model_name="final",
+            model_root=args.model_root,
+            dataset_name=args.dataset,
+            train_acc=train_acc,
+            test_acc=test_acc,
+            optimizer=optimizer,
+            epoch=epoch,
+            args=vars(args),
+            save_optimizer=True,
+        )
+        tqdm.write(f"Final model saved to {save_path}")
