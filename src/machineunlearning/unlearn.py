@@ -10,7 +10,7 @@ from machineunlearning.config import register_configs
 from machineunlearning.data import dataset
 from machineunlearning.evaluation import metrics
 from machineunlearning.model import MODEL_REGISTRY
-from machineunlearning.strategies import strategies
+from machineunlearning.strategies import STRATEGY_REGISTRY, UnlearnContext
 
 register_configs()
 
@@ -46,19 +46,20 @@ def main(cfg: DictConfig) -> None:
     if cfg.strategy.name != "retrain":
         model.load_state_dict(torch.load(cfg.model_path, map_location=device))
 
-    start_time = time.time()
-    unlearned_model = getattr(strategies, cfg.strategy.name)(
-        args=cfg,
+    ctx = UnlearnContext(
         model=model,
         unlearning_teacher=unlearning_teacher,
         unlearn_class=cfg.unlearn_class,
         unlearn_loader=unlearn_loader,
         retain_loader=retain_loader,
         test_loader=test_loader,
-        num_channels=num_channels,
         num_classes=num_classes,
+        num_channels=num_channels,
         device=device,
     )
+
+    start_time = time.time()
+    unlearned_model = STRATEGY_REGISTRY[cfg.strategy.name](cfg, ctx)
     runtime = time.time() - start_time
 
     retain_acc = metrics.evaluate(model=unlearned_model, dataloader=retain_loader, device=device)["Acc"]
