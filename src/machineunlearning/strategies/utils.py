@@ -2,10 +2,7 @@
 Unlearning utility file
 """
 
-import argparse
 import copy
-import os
-from typing import Tuple
 
 import numpy as np
 import torch
@@ -25,11 +22,10 @@ def training_optimization(
     desc: str,
     opt: str = "adam",
 ) -> torch.nn.Module:
-    # Copy model, avoid overwriting
     trained_model = copy.deepcopy(model)
 
     if opt not in ["sgd", "adam"]:
-        raise Exception("Select correct optimizer")
+        raise ValueError(f"Unknown optimizer: {opt!r}")
     if opt == "sgd":
         optimizer = torch.optim.SGD(trained_model.parameters(), lr=1e-4, momentum=0.5)
     else:
@@ -58,42 +54,3 @@ def training_optimization(
         tqdm.write(f"Epochs: {epoch} Train Loss: {mean_loss:.4f} Train Acc: {train_acc} Test acc: {test_acc}")
 
     return trained_model
-
-
-def device_configuration(args: argparse.Namespace) -> Tuple[torch.device, str]:
-    # Device configuration
-    if torch.cuda.is_available() and args.gpu:
-        device = torch.device("cuda")
-        device_name = f"({torch.cuda.get_device_name(0)})"
-    else:
-        device = torch.device("cpu")
-        device_name = ""
-    return device, device_name
-
-
-def create_directory_if_not_exists(file_path: str) -> None:
-    # Check the directory exist,
-    # If not then create the directory
-    directory = os.path.dirname(file_path)
-
-    # Check if the directory exists
-    if not os.path.exists(directory):
-        # If not, create the directory and its parent directories if necessary
-        os.makedirs(directory)
-        print(f"Created new directory: {file_path}")
-
-
-def save_model(
-    model_arc: str,
-    model: torch.nn.Module,
-    scenario: str,
-    model_name: str,
-    model_root: str,
-    dataset_name: str,
-    train_acc: float,
-    test_acc: float,
-) -> None:
-    model_folder = f"{model_root}/{model_arc}/{scenario}/{dataset_name}/"
-    create_directory_if_not_exists(file_path=model_folder)
-    model_path = f"{model_folder}{model_name}_{train_acc}_{test_acc}.pt"
-    torch.save(model.state_dict(), model_path)

@@ -4,7 +4,8 @@ import time
 import torch
 from torch.utils.data import DataLoader
 
-from machineunlearning.data import dataset, utils
+from machineunlearning import utils
+from machineunlearning.data import dataset
 from machineunlearning.evaluation import metrics
 from machineunlearning.model import models
 from machineunlearning.strategies import strategies
@@ -68,7 +69,7 @@ def main() -> None:
 
     utils.set_seed(seed=args.seed)
 
-    device, device_name = utils.device_configuration(args=args)
+    device = torch.device("cuda" if args.gpu and torch.cuda.is_available() else "cpu")
     print(
         f"Unlearning scenario: {args.scenario} Dataset: {args.dataset} Unlearn method: {args.unlearn_method} Device: {device}"
     )

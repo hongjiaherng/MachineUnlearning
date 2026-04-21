@@ -7,7 +7,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from machineunlearning.data import dataset, utils
+from machineunlearning import utils
+from machineunlearning.data import dataset
 from machineunlearning.evaluation import metrics
 from machineunlearning.model import MODEL_REGISTRY
 
