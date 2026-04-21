@@ -1,128 +1,100 @@
-import argparse
+import logging
 import time
 
+import hydra
 import torch
+from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-from machineunlearning.data import dataset, metrics, utils
-from machineunlearning.model import models
-from machineunlearning.strategies import strategies
+from machineunlearning import utils
+from machineunlearning.config import register_configs
+from machineunlearning.data import dataset
+from machineunlearning.evaluation import metrics
+from machineunlearning.model import MODEL_REGISTRY
+from machineunlearning.strategies import STRATEGY_REGISTRY, UnlearnContext
+
+register_configs()
+
+log = logging.getLogger(__name__)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--gpu", type=bool, default=True, help="use gpu or not")
-    parser.add_argument("--root", type=str, default="./data", help="Dataset root directory")
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        help="Dataset configuration",
-        choices=["MNist", "FMNist", "Cifar10", "Cifar100", "TinyImagenet"],
-    )
-    parser.add_argument("--model_root", type=str, default="./checkpoint", help="Model root directory")
-    parser.add_argument("--model", type=str, default="ResNet18", help="Model selection")
-    parser.add_argument("--save_model", type=bool, default=False, help="Save trained model option")
-    parser.add_argument(
-        "--unlearn_method",
-        type=str,
-        default="lipschitz",
-        choices=[
-            "baseline",
-            "retrain",
-            "fine_tune",
-            "gradient_ascent",
-            "bad_teacher",
-            "scrub",
-            "amnesiac",
-            "boundary",
-            "ntk",
-            "fisher",
-            "unsir",
-            "ssd",
-        ],
-        help="Baselines unlearn method",
-    )
-    parser.add_argument("--model_path", type=str, help="Trained model path")
-    parser.add_argument("--unlearn_class", type=int, help="Class to unlearn")
-    parser.add_argument("--scenario", type=str, default="class", choices=["class", "client", "sample"])
-    parser.add_argument("--epochs", type=int, default=1, help="Training epochs")
-    parser.add_argument("--batch_size", type=int, default=128, help="Training batch size")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
-    parser.add_argument("--optimizer", type=str, default="adam", choices=["sgd", "adam"])
-    parser.add_argument("--momentum", type=float, default=0.5, help="SGD momentum (default: 0.5)")
-    parser.add_argument(
-        "--report_training",
-        type=bool,
-        default=True,
-        help="option to show training performance",
-    )
-    parser.add_argument(
-        "--report_interval",
-        type=int,
-        default=5,
-        help="training performance report interval",
-    )
-    parser.add_argument("--seed", type=int, default=0, help="Seed for runs")
-    args = parser.parse_args()
+@hydra.main(version_base=None, config_path="conf", config_name="unlearn")
+def main(cfg: DictConfig) -> None:
+    log.info("Unlearning configuration:\n%s", OmegaConf.to_yaml(cfg))
 
-    utils.set_seed(seed=args.seed)
+    utils.set_seed(seed=cfg.seed)
 
-    device, device_name = utils.device_configuration(args=args)
-    print(
-        f"Unlearning scenario: {args.scenario} Dataset: {args.dataset} Unlearn method: {args.unlearn_method} Device: {device}"
+    device = torch.device("cuda" if not cfg.no_gpu and torch.cuda.is_available() else "cpu")
+    log.info(
+        "Scenario: %s Dataset: %s Strategy: %s Device: %s",
+        cfg.scenario, cfg.dataset.name, cfg.strategy.name, device,
     )
 
     train_dataset, test_dataset, num_classes, num_channels = dataset.get_dataset(
-        dataset_name=args.dataset, root=args.root
+        dataset_name=cfg.dataset.name,
+        root=cfg.dataset.root,
+        augment=cfg.dataset.augment,
     )
-
     retain_dataset, unlearn_dataset = dataset.split_unlearn_dataset(
-        data_list=train_dataset, unlearn_class=args.unlearn_class
+        dataset=train_dataset, unlearn_class=cfg.unlearn_class
     )
 
-    retain_loader = DataLoader(retain_dataset, batch_size=args.batch_size, shuffle=True)
-    unlearn_loader = DataLoader(unlearn_dataset, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    retain_loader = DataLoader(retain_dataset, batch_size=cfg.batch_size, shuffle=True)
+    unlearn_loader = DataLoader(unlearn_dataset, batch_size=cfg.batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=cfg.batch_size, shuffle=False)
 
-    model = getattr(models, args.model)(num_classes=num_classes, input_channels=num_channels).to(device)
-    unlearning_teacher = getattr(models, args.model)(num_classes=num_classes, input_channels=num_channels).to(device)
+    model = MODEL_REGISTRY[cfg.model.name](num_classes=num_classes, input_channels=num_channels).to(device)
+    unlearning_teacher = MODEL_REGISTRY[cfg.model.name](num_classes=num_classes, input_channels=num_channels).to(device)
 
-    if args.unlearn_method != "retrain":
-        model.load_state_dict(torch.load(args.model_path))
+    # Materialize LazyLinear weights so state_dict shapes match before loading.
+    sample_x, _ = next(iter(test_loader))
+    with torch.no_grad():
+        model(sample_x.to(device))
+        unlearning_teacher(sample_x.to(device))
 
-    start_time = time.time()
-    unlearned_model = getattr(strategies, args.unlearn_method)(
-        args=args,
+    if cfg.strategy.name != "retrain":
+        checkpoint = torch.load(cfg.model_path, map_location=device, weights_only=False)
+        state_dict = checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint
+        model.load_state_dict(state_dict)
+
+    ctx = UnlearnContext(
         model=model,
         unlearning_teacher=unlearning_teacher,
-        unlearn_class=args.unlearn_class,
+        unlearn_class=cfg.unlearn_class,
         unlearn_loader=unlearn_loader,
         retain_loader=retain_loader,
         test_loader=test_loader,
-        num_channels=num_channels,
         num_classes=num_classes,
+        num_channels=num_channels,
         device=device,
     )
+
+    start_time = time.time()
+    unlearned_model = STRATEGY_REGISTRY[cfg.strategy.name](cfg, ctx)
     runtime = time.time() - start_time
 
-    retain_acc = metrics.evaluate(val_loader=retain_loader, model=unlearned_model, device=device)["Acc"]
-    unlearn_acc = metrics.evaluate(val_loader=unlearn_loader, model=unlearned_model, device=device)["Acc"]
+    retain_acc = metrics.evaluate(model=unlearned_model, dataloader=retain_loader, device=device)["Acc"]
+    unlearn_acc = metrics.evaluate(model=unlearned_model, dataloader=unlearn_loader, device=device)["Acc"]
     mia = metrics.mia(
         retain_loader=retain_loader,
         forget_loader=unlearn_loader,
         test_loader=test_loader,
         model=unlearned_model,
+        device=device,
     )
-    print(f"Unlearned - Retain acc: {retain_acc} Unlearn_acc: {unlearn_acc} MIA: {mia} Runtime: {runtime}s")
+    log.info(
+        "Unlearned - Retain acc: %.4f Unlearn acc: %.4f MIA: %s Runtime: %.2fs",
+        retain_acc, unlearn_acc, mia, runtime,
+    )
 
-    if args.save_model:
+    if cfg.save_model:
         utils.save_model(
-            model_arc=args.model,
+            model_arc=cfg.model.name,
             model=unlearned_model,
-            scenario=args.scenario,
-            model_name=args.unlearn_method,
-            model_root=args.model_root,
-            dataset_name=args.dataset,
+            scenario=cfg.scenario,
+            model_name=cfg.strategy.name,
+            model_root=cfg.model_root,
+            dataset_name=cfg.dataset.name,
             train_acc=retain_acc,
             test_acc=unlearn_acc,
         )

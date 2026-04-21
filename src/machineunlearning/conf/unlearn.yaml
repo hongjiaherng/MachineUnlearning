@@ -1,0 +1,22 @@
+defaults:
+  - unlearn_schema
+  - dataset: cifar10
+  - model: resnet18
+  - optimizer: adam
+  - strategy: fine_tune
+  - _self_
+
+batch_size: 128
+scenario: class
+seed: 0
+num_workers: 0
+model_root: ./checkpoint
+save_model: false
+no_gpu: false
+
+hydra:
+  run:
+    dir: outputs/unlearn/${now:%Y%m%d-%H%M%S}_${strategy.name}_${dataset.name}_${model.name}_c${unlearn_class}
+  sweep:
+    dir: multirun/unlearn/${now:%Y%m%d-%H%M%S}
+    subdir: ${strategy.name}_${dataset.name}_${model.name}_c${unlearn_class}_${hydra.job.num}

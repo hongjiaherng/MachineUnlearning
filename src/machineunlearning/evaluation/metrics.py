@@ -3,7 +3,6 @@ Evaluation metrics
 """
 
 import copy
-import os
 from typing import Tuple
 
 import matplotlib.pyplot as plt
@@ -13,8 +12,6 @@ from sklearn.linear_model import LogisticRegression
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
-os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 
 # Classification accuracy metrics
@@ -51,7 +48,7 @@ def evaluate(model, dataloader, device):
 
 
 def collect_entropy(data_loader: DataLoader, model: torch.nn.Module, device: torch.device) -> np.array:
-    prob = collect_prob(data_loader, model)
+    prob = collect_prob(data_loader, model, device)
     enp = entropy(prob).cpu().detach().numpy()
     return enp
 
@@ -98,14 +95,14 @@ def entropy(
     return enp
 
 
-def collect_prob(data_loader, model):
-
+def collect_prob(data_loader, model, device=None):
+    if device is None:
+        device = next(model.parameters()).device
     data_loader = DataLoader(data_loader.dataset, batch_size=1, shuffle=False)
     prob = []
     with torch.no_grad():
-        # for batch in data_loader:
         for batch in tqdm(data_loader):
-            batch = [tensor.to(next(model.parameters()).device) for tensor in batch]
+            batch = [tensor.to(device) for tensor in batch]
             data, target = batch
             output = model(data)
             prob.append(F.softmax(output, dim=-1).data)
@@ -113,10 +110,10 @@ def collect_prob(data_loader, model):
 
 
 # https://arxiv.org/abs/2205.08096
-def get_membership_attack_data(retain_loader, forget_loader, test_loader, model):
-    retain_prob = collect_prob(retain_loader, model)
-    forget_prob = collect_prob(forget_loader, model)
-    test_prob = collect_prob(test_loader, model)
+def get_membership_attack_data(retain_loader, forget_loader, test_loader, model, device=None):
+    retain_prob = collect_prob(retain_loader, model, device)
+    forget_prob = collect_prob(forget_loader, model, device)
+    test_prob = collect_prob(test_loader, model, device)
 
     forget_enp = np.mean(entropy(forget_prob).cpu().detach().numpy()).item()
 
@@ -129,11 +126,12 @@ def get_membership_attack_data(retain_loader, forget_loader, test_loader, model)
 
 
 # https://arxiv.org/abs/2205.08096
-def mia(retain_loader, forget_loader, test_loader, model) -> float:
+def mia(retain_loader, forget_loader, test_loader, model, device=None) -> float:
     copy_model = copy.deepcopy(model)  # avoid overwriting
-    X_f, Y_f, X_r, Y_r, forget_enp = get_membership_attack_data(retain_loader, forget_loader, test_loader, copy_model)
-    # clf = SVC(C=3,gamma='auto',kernel='rbf')
-    clf = LogisticRegression(class_weight="balanced", solver="lbfgs", multi_class="multinomial")
+    X_f, Y_f, X_r, Y_r, forget_enp = get_membership_attack_data(
+        retain_loader, forget_loader, test_loader, copy_model, device
+    )
+    clf = LogisticRegression(class_weight="balanced", solver="lbfgs")
     clf.fit(X_r, Y_r)
     results = clf.predict(X_f)
     return round(results.mean() * 100, 4)
@@ -147,13 +145,14 @@ def model_evaluation(
     device: torch.device,
 ) -> Tuple[float, float, float]:
 
-    retain_acc = evaluate(val_loader=retain_loader, model=model, device=device)["Acc"]
-    unlearn_acc = evaluate(val_loader=unlearn_loader, model=model, device=device)["Acc"]
+    retain_acc = evaluate(model=model, dataloader=retain_loader, device=device)["Acc"]
+    unlearn_acc = evaluate(model=model, dataloader=unlearn_loader, device=device)["Acc"]
     mia_asr = mia(
         retain_loader=retain_loader,
         forget_loader=unlearn_loader,
         test_loader=test_loader,
         model=model,
+        device=device,
     )
 
     return retain_acc, unlearn_acc, mia_asr

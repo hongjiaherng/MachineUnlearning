@@ -1,0 +1,9 @@
+name: ntk
+epochs: 0
+params:
+  weight_decay: 0.1
+  # NTK builds a dense Jacobian of shape (num_params, num_samples*num_classes),
+  # so for MLP (~235k params) each sample costs ~40 MB. Keep subsamples small
+  # unless you have >32 GB RAM.
+  retain_subsample: 100
+  forget_subsample: 100

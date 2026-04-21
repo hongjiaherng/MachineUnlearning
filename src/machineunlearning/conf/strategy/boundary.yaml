@@ -1,0 +1,10 @@
+name: boundary
+epochs: 10
+params:
+  bound: 0.1
+  lr: 1e-5
+  momentum: 0.9
+  extra_exp: null
+  lambda_: 0.7
+  bias: -0.5
+  slope: 5.0

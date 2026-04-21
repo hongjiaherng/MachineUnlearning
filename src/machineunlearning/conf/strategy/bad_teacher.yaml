@@ -1,0 +1,7 @@
+name: bad_teacher
+epochs: 1
+params:
+  kl_temperature: 1.0
+  lr: 1e-4
+  batch_size: 256
+  retain_frac: 0.3

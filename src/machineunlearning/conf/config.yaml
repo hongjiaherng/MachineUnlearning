@@ -1,0 +1,23 @@
+defaults:
+  - train_schema
+  - dataset: cifar10
+  - model: resnet18
+  - optimizer: adam
+  - _self_
+
+epochs: 30
+batch_size: 128
+scenario: class
+seed: 0
+num_workers: 0
+model_root: ./checkpoint
+save_model: true
+no_gpu: false
+report_interval: 5
+
+hydra:
+  run:
+    dir: outputs/train/${now:%Y%m%d-%H%M%S}_${dataset.name}_${model.name}
+  sweep:
+    dir: multirun/train/${now:%Y%m%d-%H%M%S}
+    subdir: ${dataset.name}_${model.name}_${hydra.job.num}

@@ -1,0 +1,5 @@
+name: gradient_ascent
+epochs: 5
+params:
+  lr: 1.0e-4
+  momentum: 0.5

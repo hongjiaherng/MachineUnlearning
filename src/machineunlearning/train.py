@@ -1,103 +1,70 @@
-import argparse
+import logging
 import warnings
 
+import hydra
 import numpy as np
 import torch
+from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from machineunlearning.data import dataset, metrics, utils
+from machineunlearning import utils
+from machineunlearning.config import register_configs
+from machineunlearning.data import dataset
+from machineunlearning.evaluation import metrics
 from machineunlearning.model import MODEL_REGISTRY
 
 warnings.filterwarnings("ignore", category=np.exceptions.VisibleDeprecationWarning)
 
+register_configs()
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--no-gpu", action="store_true")
-    parser.add_argument("--root", type=str, default="./data")
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        help="Dataset configuration",
-        choices=["MNIST", "FashionMNIST", "CIFAR10", "CIFAR20", "CIFAR100", "TinyImagenet"],
-        required=True,
-    )
-    parser.add_argument("--model_root", type=str, default="./checkpoint")
-    parser.add_argument("--model", type=str, default="ResNet18", choices=list(MODEL_REGISTRY.keys()))
-    parser.add_argument("--save_model", action="store_true", default=True)
-    parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--optimizer", type=str, default="adam", choices=["sgd", "adam"])
-    parser.add_argument("--momentum", type=float, default=0.5)
-    parser.add_argument(
-        "--scenario",
-        type=str,
-        default="class",
-        choices=["class", "client", "sample"],
-        help="Training and unlearning scenario",
-    )
-    parser.add_argument("--report_interval", type=int, default=5)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--num_workers", type=int, default=0)
-    args = parser.parse_args()
-
-    return args
+log = logging.getLogger(__name__)
 
 
-def main() -> None:
-    args = parse_args()
+@hydra.main(version_base=None, config_path="conf", config_name="config")
+def main(cfg: DictConfig) -> None:
+    log.info("Training configuration:\n%s", OmegaConf.to_yaml(cfg))
 
-    print("Training configuration:")
-    for k, v in vars(args).items():
-        print(f"{k:<20}: {v}")
+    utils.set_seed(seed=cfg.seed)
 
-    utils.set_seed(seed=args.seed)
+    device = torch.device("cuda" if not cfg.no_gpu and torch.cuda.is_available() else "cpu")
 
-    # ===== Device =====
-    use_gpu = not args.no_gpu
-    device = torch.device("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
-
-    # ===== Dataset =====
     train_dataset, test_dataset, num_classes, num_channels = dataset.get_dataset(
-        dataset_name=args.dataset,
-        root=args.root,
-        augment=True,
+        dataset_name=cfg.dataset.name,
+        root=cfg.dataset.root,
+        augment=cfg.dataset.augment,
     )
     train_loader = DataLoader(
         train_dataset,
-        batch_size=args.batch_size,
+        batch_size=cfg.batch_size,
         shuffle=True,
         pin_memory=device.type == "cuda",
-        num_workers=args.num_workers,
+        num_workers=cfg.num_workers,
     )
     test_loader = DataLoader(
         test_dataset,
-        batch_size=args.batch_size,
+        batch_size=cfg.batch_size,
         shuffle=False,
         pin_memory=device.type == "cuda",
-        num_workers=args.num_workers,
+        num_workers=cfg.num_workers,
     )
 
-    # ===== Model =====
-    model = MODEL_REGISTRY[args.model](num_classes=num_classes, input_channels=num_channels).to(device)
+    model = MODEL_REGISTRY[cfg.model.name](num_classes=num_classes, input_channels=num_channels).to(device)
 
-    # ===== Optimizer =====
-    assert args.optimizer in ["sgd", "adam"], "select correct optimizer"
-    if args.optimizer == "sgd":
-        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    if cfg.optimizer.name == "sgd":
+        optimizer = torch.optim.SGD(model.parameters(), lr=cfg.optimizer.lr, momentum=cfg.optimizer.momentum)
+    elif cfg.optimizer.name == "adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=cfg.optimizer.lr, weight_decay=cfg.optimizer.weight_decay)
     else:
-        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
+        raise ValueError(f"Unknown optimizer: {cfg.optimizer.name}")
 
     loss_func = nn.CrossEntropyLoss().to(device)
 
-    # ===== Training =====
     max_test_acc = 0.0
     max_train_acc = 0.0
 
-    outer_pbar = tqdm(range(1, args.epochs + 1), desc="Training", unit="epoch")
+    outer_pbar = tqdm(range(1, cfg.epochs + 1), desc="Training", unit="epoch")
 
     for epoch in outer_pbar:
         model.train()
@@ -152,41 +119,45 @@ def main() -> None:
             max_test_acc = test_acc
             max_train_acc = train_acc
 
-            if args.save_model:
-                save_path = utils.save_model(
-                    model_arc=args.model,
+            if cfg.save_model:
+                utils.save_model(
+                    model_arc=cfg.model.name,
                     model=model,
-                    scenario=args.scenario,
+                    scenario=cfg.scenario,
                     model_name="best",
-                    model_root=args.model_root,
-                    dataset_name=args.dataset,
+                    model_root=cfg.model_root,
+                    dataset_name=cfg.dataset.name,
                     train_acc=train_acc,
                     test_acc=test_acc,
                     optimizer=optimizer,
                     epoch=epoch,
-                    args=vars(args),
+                    args=OmegaConf.to_container(cfg, resolve=True),
                     save_optimizer=True,
                 )
-                tqdm.write(
-                    f"New Best @ Epoch {epoch:03d} | Loss {train_loss:.4f} | Train {train_acc:.4f} | Test {test_acc:.4f}"
+                log.info(
+                    "New Best @ Epoch %03d | Loss %.4f | Train %.4f | Test %.4f",
+                    epoch, train_loss, train_acc, test_acc,
                 )
 
-    tqdm.write(f"Best | Train: {max_train_acc:.4f} | Test: {max_test_acc:.4f}")
+    log.info("Best | Train: %.4f | Test: %.4f", max_train_acc, max_test_acc)
 
-    # Save final model
-    if args.save_model:
+    if cfg.save_model:
         save_path = utils.save_model(
-            model_arc=args.model,
+            model_arc=cfg.model.name,
             model=model,
-            scenario=args.scenario,
+            scenario=cfg.scenario,
             model_name="final",
-            model_root=args.model_root,
-            dataset_name=args.dataset,
+            model_root=cfg.model_root,
+            dataset_name=cfg.dataset.name,
             train_acc=train_acc,
             test_acc=test_acc,
             optimizer=optimizer,
             epoch=epoch,
-            args=vars(args),
+            args=OmegaConf.to_container(cfg, resolve=True),
             save_optimizer=True,
         )
-        tqdm.write(f"Final model saved to {save_path}")
+        log.info("Final model saved to %s", save_path)
+
+
+if __name__ == "__main__":
+    main()
