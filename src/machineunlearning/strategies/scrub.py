@@ -78,7 +78,7 @@ def unlearn(cfg: DictConfig, ctx: UnlearnContext) -> nn.Module:
     p = cfg.strategy.params
 
     student = copy.deepcopy(ctx.model).to(ctx.device)
-    teacher = copy.deepcopy(ctx.unlearning_teacher).to(ctx.device)
+    teacher = copy.deepcopy(ctx.model).to(ctx.device)
 
     criterion_cls = nn.CrossEntropyLoss().to(ctx.device)
     criterion_div = DistillKL(p.kd_t).to(ctx.device)

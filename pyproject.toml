@@ -51,7 +51,11 @@ url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [dependency-groups]
-dev = ["ruff>=0.15.11"]
+dev = ["ruff>=0.15.11", "pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
 
 [tool.ruff.lint]
 extend-select = ["I"]
