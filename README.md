@@ -22,26 +22,39 @@ Sincere appreciation to the authors of these popular machine unlearning algorith
 
 ### Preparation
 
-Before executing the project code, please prepare the Python environment according to the `requirement.txt` file. We set up the environment with `python 3.9.12` and `torch 2.0.0`. 
+Uses [uv](https://docs.astral.sh/uv/). Requires Python 3.12.
 
-```python
-pip install -r requirement.txt
+```bash
+uv sync --extra cpu      # CPU-only PyTorch
+uv sync --extra cu130    # CUDA 13.0 PyTorch
 ```
 
 ### How to run
 
+Both entrypoints are driven by [Hydra](https://hydra.cc). Compose a run by selecting options from
+the `dataset`, `model`, `optimizer`, and `strategy` config groups, or override any field with `key=value`.
+
 **1. Model Training**
 
-```python
-python train_main.py -dataset Cifar10 
+```bash
+uv run mu-train dataset=cifar10 model=resnet18
+uv run mu-train dataset=mnist model=simplecnn epochs=1 batch_size=64
 ```
 
+Checkpoints are written to `./checkpoint/{Model}/{scenario}/{Dataset}/`.
 
 **2. Unlearning**
 
-```python
-python unlearn_main.py -gpu -dataset Cifar10 -unlearn_class 0 -unlearn_method retrain -model_path 
+```bash
+uv run mu-unlearn \
+  dataset=cifar10 model=resnet18 \
+  strategy=fine_tune \
+  unlearn_class=0 \
+  model_path=./checkpoint/ResNet18/class/CIFAR10/<checkpoint>.pt
 ```
+
+The `retrain` strategy does not require `model_path`. Run `uv run mu-train --help` or
+`uv run mu-unlearn --help` to see the full list of composable config groups.
 
 ## Feedback
 Suggestions and opinions on this work (both positive and negative) are greatly welcomed. Please contact the author by sending an email to
