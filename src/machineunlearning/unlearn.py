@@ -1,103 +1,57 @@
-import argparse
 import time
 
+import hydra
 import torch
+from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
 from machineunlearning import utils
+from machineunlearning.config import register_configs
 from machineunlearning.data import dataset
 from machineunlearning.evaluation import metrics
-from machineunlearning.model import models
+from machineunlearning.model import MODEL_REGISTRY
 from machineunlearning.strategies import strategies
 
+register_configs()
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--gpu", type=bool, default=True, help="use gpu or not")
-    parser.add_argument("--root", type=str, default="./data", help="Dataset root directory")
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        help="Dataset configuration",
-        choices=["MNist", "FMNist", "Cifar10", "Cifar100", "TinyImagenet"],
-    )
-    parser.add_argument("--model_root", type=str, default="./checkpoint", help="Model root directory")
-    parser.add_argument("--model", type=str, default="ResNet18", help="Model selection")
-    parser.add_argument("--save_model", type=bool, default=False, help="Save trained model option")
-    parser.add_argument(
-        "--unlearn_method",
-        type=str,
-        default="lipschitz",
-        choices=[
-            "baseline",
-            "retrain",
-            "fine_tune",
-            "gradient_ascent",
-            "bad_teacher",
-            "scrub",
-            "amnesiac",
-            "boundary",
-            "ntk",
-            "fisher",
-            "unsir",
-            "ssd",
-        ],
-        help="Baselines unlearn method",
-    )
-    parser.add_argument("--model_path", type=str, help="Trained model path")
-    parser.add_argument("--unlearn_class", type=int, help="Class to unlearn")
-    parser.add_argument("--scenario", type=str, default="class", choices=["class", "client", "sample"])
-    parser.add_argument("--epochs", type=int, default=1, help="Training epochs")
-    parser.add_argument("--batch_size", type=int, default=128, help="Training batch size")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
-    parser.add_argument("--optimizer", type=str, default="adam", choices=["sgd", "adam"])
-    parser.add_argument("--momentum", type=float, default=0.5, help="SGD momentum (default: 0.5)")
-    parser.add_argument(
-        "--report_training",
-        type=bool,
-        default=True,
-        help="option to show training performance",
-    )
-    parser.add_argument(
-        "--report_interval",
-        type=int,
-        default=5,
-        help="training performance report interval",
-    )
-    parser.add_argument("--seed", type=int, default=0, help="Seed for runs")
-    args = parser.parse_args()
 
-    utils.set_seed(seed=args.seed)
+@hydra.main(version_base=None, config_path="conf", config_name="unlearn")
+def main(cfg: DictConfig) -> None:
+    print("Unlearning configuration:")
+    print(OmegaConf.to_yaml(cfg))
 
-    device = torch.device("cuda" if args.gpu and torch.cuda.is_available() else "cpu")
+    utils.set_seed(seed=cfg.seed)
+
+    device = torch.device("cuda" if not cfg.no_gpu and torch.cuda.is_available() else "cpu")
     print(
-        f"Unlearning scenario: {args.scenario} Dataset: {args.dataset} Unlearn method: {args.unlearn_method} Device: {device}"
+        f"Scenario: {cfg.scenario} Dataset: {cfg.dataset.name} Strategy: {cfg.strategy.name} Device: {device}"
     )
 
     train_dataset, test_dataset, num_classes, num_channels = dataset.get_dataset(
-        dataset_name=args.dataset, root=args.root
+        dataset_name=cfg.dataset.name,
+        root=cfg.dataset.root,
+        augment=cfg.dataset.augment,
     )
-
     retain_dataset, unlearn_dataset = dataset.split_unlearn_dataset(
-        data_list=train_dataset, unlearn_class=args.unlearn_class
+        dataset=train_dataset, unlearn_class=cfg.unlearn_class
     )
 
-    retain_loader = DataLoader(retain_dataset, batch_size=args.batch_size, shuffle=True)
-    unlearn_loader = DataLoader(unlearn_dataset, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    retain_loader = DataLoader(retain_dataset, batch_size=cfg.batch_size, shuffle=True)
+    unlearn_loader = DataLoader(unlearn_dataset, batch_size=cfg.batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=cfg.batch_size, shuffle=False)
 
-    model = getattr(models, args.model)(num_classes=num_classes, input_channels=num_channels).to(device)
-    unlearning_teacher = getattr(models, args.model)(num_classes=num_classes, input_channels=num_channels).to(device)
+    model = MODEL_REGISTRY[cfg.model.name](num_classes=num_classes, input_channels=num_channels).to(device)
+    unlearning_teacher = MODEL_REGISTRY[cfg.model.name](num_classes=num_classes, input_channels=num_channels).to(device)
 
-    if args.unlearn_method != "retrain":
-        model.load_state_dict(torch.load(args.model_path))
+    if cfg.strategy.name != "retrain":
+        model.load_state_dict(torch.load(cfg.model_path, map_location=device))
 
     start_time = time.time()
-    unlearned_model = getattr(strategies, args.unlearn_method)(
-        args=args,
+    unlearned_model = getattr(strategies, cfg.strategy.name)(
+        args=cfg,
         model=model,
         unlearning_teacher=unlearning_teacher,
-        unlearn_class=args.unlearn_class,
+        unlearn_class=cfg.unlearn_class,
         unlearn_loader=unlearn_loader,
         retain_loader=retain_loader,
         test_loader=test_loader,
@@ -116,16 +70,16 @@ def main() -> None:
         model=unlearned_model,
         device=device,
     )
-    print(f"Unlearned - Retain acc: {retain_acc} Unlearn_acc: {unlearn_acc} MIA: {mia} Runtime: {runtime}s")
+    print(f"Unlearned - Retain acc: {retain_acc} Unlearn acc: {unlearn_acc} MIA: {mia} Runtime: {runtime:.2f}s")
 
-    if args.save_model:
+    if cfg.save_model:
         utils.save_model(
-            model_arc=args.model,
+            model_arc=cfg.model.name,
             model=unlearned_model,
-            scenario=args.scenario,
-            model_name=args.unlearn_method,
-            model_root=args.model_root,
-            dataset_name=args.dataset,
+            scenario=cfg.scenario,
+            model_name=cfg.strategy.name,
+            model_root=cfg.model_root,
+            dataset_name=cfg.dataset.name,
             train_acc=retain_acc,
             test_acc=unlearn_acc,
         )

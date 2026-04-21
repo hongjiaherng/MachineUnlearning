@@ -2,7 +2,6 @@
 Unlearning strategies file
 """
 
-import argparse
 import copy
 import random
 from collections import OrderedDict
@@ -11,6 +10,7 @@ from copy import deepcopy
 import numpy as np
 import torch
 import torch.nn.functional as F
+from omegaconf import DictConfig
 from torch import nn
 from torch.utils.data import ConcatDataset, DataLoader
 from tqdm import tqdm
@@ -22,7 +22,7 @@ from machineunlearning.strategies._ssd import ParameterPerturber
 
 
 def baseline(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -37,7 +37,7 @@ def baseline(
 
 
 def retrain(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -63,7 +63,7 @@ def retrain(
 
 
 def fine_tune(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -90,7 +90,7 @@ def fine_tune(
 
 # Unrolling SGD: https://github.com/cleverhans-lab/unrolling-sgd
 def gradient_ascent(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -122,7 +122,7 @@ def gradient_ascent(
 
 # Bad Teacher: https://github.com/vikram2000b/bad-teaching-unlearning
 def bad_teacher(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -158,7 +158,7 @@ def bad_teacher(
 
 # SCRUB: https://github.com/meghdadk/SCRUB/tree/main
 def scrub(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -256,7 +256,7 @@ def scrub(
 
 # Amnesiac Unlearning: https://github.com/lmgraves/AmnesiacML
 def amnesiac(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -295,7 +295,7 @@ def amnesiac(
 
 # Boundary Unlearning: https://github.com/TY-LEE-KR/Boundary-Unlearning-Code
 def boundary(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -367,7 +367,7 @@ def boundary(
 
 # Neural Tangent Kernel: https://github.com/AdityaGolatkar/SelectiveForgetting
 def ntk(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -457,7 +457,7 @@ def ntk(
 
 # Fisher Forgertting: https://github.com/AdityaGolatkar/SelectiveForgetting
 def fisher(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -532,7 +532,7 @@ def fisher(
 
 # Selective Impair and Repair: https://github.com/vikram2000b/Fast-Machine-Unlearning
 def unsir(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
@@ -594,7 +594,7 @@ def unsir(
 
 # Selective Synaptic Dampening: https://github.com/if-loops/selective-synaptic-dampening
 def ssd(
-    args: argparse.Namespace,
+    args: DictConfig,
     model: torch.nn.Module,
     unlearning_teacher: torch.nn.Module,
     unlearn_class: int,
