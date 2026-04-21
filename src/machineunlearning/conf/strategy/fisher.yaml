@@ -1,0 +1,4 @@
+name: fisher
+epochs: 0
+params:
+  alpha: 1e-6

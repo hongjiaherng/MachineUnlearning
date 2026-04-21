@@ -1,0 +1,13 @@
+name: scrub
+epochs: 3
+params:
+  gamma: 0.99
+  alpha: 0.001
+  beta: 0.0
+  msteps: 2
+  kd_t: 4
+  sgda_learning_rate: 5e-4
+  lr_decay_epochs: [3, 5, 9]
+  lr_decay_rate: 0.1
+  sgda_weight_decay: 5e-4
+  sgda_momentum: 0.9

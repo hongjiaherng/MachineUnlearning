@@ -1,0 +1,15 @@
+defaults:
+  - unlearn_schema
+  - dataset: cifar10
+  - model: resnet18
+  - optimizer: adam
+  - strategy: fine_tune
+  - _self_
+
+batch_size: 128
+scenario: class
+seed: 0
+num_workers: 0
+model_root: ./checkpoint
+save_model: false
+no_gpu: false

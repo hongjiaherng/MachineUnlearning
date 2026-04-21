@@ -1,0 +1,10 @@
+name: ssd
+epochs: 0
+params:
+  lower_bound: 1
+  exponent: 1
+  min_layer: -1
+  max_layer: -1
+  forget_threshold: 1
+  dampening_constant: 1
+  selection_weighting: 10

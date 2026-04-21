@@ -1,0 +1,4 @@
+name: ntk
+epochs: 0
+params:
+  weight_decay: 0.1

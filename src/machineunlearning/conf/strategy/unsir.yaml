@@ -1,0 +1,6 @@
+name: unsir
+epochs: 1
+params:
+  noise_batch_size: 32
+  num_samples: 500
+  noise_train_epochs: 25

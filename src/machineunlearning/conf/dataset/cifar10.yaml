@@ -1,0 +1,3 @@
+name: CIFAR10
+root: ./data
+augment: true
