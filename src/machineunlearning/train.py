@@ -1,3 +1,4 @@
+import logging
 import warnings
 
 import hydra
@@ -18,11 +19,12 @@ warnings.filterwarnings("ignore", category=np.exceptions.VisibleDeprecationWarni
 
 register_configs()
 
+log = logging.getLogger(__name__)
+
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig) -> None:
-    print("Training configuration:")
-    print(OmegaConf.to_yaml(cfg))
+    log.info("Training configuration:\n%s", OmegaConf.to_yaml(cfg))
 
     utils.set_seed(seed=cfg.seed)
 
@@ -132,11 +134,12 @@ def main(cfg: DictConfig) -> None:
                     args=OmegaConf.to_container(cfg, resolve=True),
                     save_optimizer=True,
                 )
-                tqdm.write(
-                    f"New Best @ Epoch {epoch:03d} | Loss {train_loss:.4f} | Train {train_acc:.4f} | Test {test_acc:.4f}"
+                log.info(
+                    "New Best @ Epoch %03d | Loss %.4f | Train %.4f | Test %.4f",
+                    epoch, train_loss, train_acc, test_acc,
                 )
 
-    tqdm.write(f"Best | Train: {max_train_acc:.4f} | Test: {max_test_acc:.4f}")
+    log.info("Best | Train: %.4f | Test: %.4f", max_train_acc, max_test_acc)
 
     if cfg.save_model:
         save_path = utils.save_model(
@@ -153,7 +156,7 @@ def main(cfg: DictConfig) -> None:
             args=OmegaConf.to_container(cfg, resolve=True),
             save_optimizer=True,
         )
-        tqdm.write(f"Final model saved to {save_path}")
+        log.info("Final model saved to %s", save_path)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import logging
 import time
 
 import hydra
@@ -14,17 +15,19 @@ from machineunlearning.strategies import STRATEGY_REGISTRY, UnlearnContext
 
 register_configs()
 
+log = logging.getLogger(__name__)
+
 
 @hydra.main(version_base=None, config_path="conf", config_name="unlearn")
 def main(cfg: DictConfig) -> None:
-    print("Unlearning configuration:")
-    print(OmegaConf.to_yaml(cfg))
+    log.info("Unlearning configuration:\n%s", OmegaConf.to_yaml(cfg))
 
     utils.set_seed(seed=cfg.seed)
 
     device = torch.device("cuda" if not cfg.no_gpu and torch.cuda.is_available() else "cpu")
-    print(
-        f"Scenario: {cfg.scenario} Dataset: {cfg.dataset.name} Strategy: {cfg.strategy.name} Device: {device}"
+    log.info(
+        "Scenario: %s Dataset: %s Strategy: %s Device: %s",
+        cfg.scenario, cfg.dataset.name, cfg.strategy.name, device,
     )
 
     train_dataset, test_dataset, num_classes, num_channels = dataset.get_dataset(
@@ -73,7 +76,10 @@ def main(cfg: DictConfig) -> None:
         model=unlearned_model,
         device=device,
     )
-    print(f"Unlearned - Retain acc: {retain_acc} Unlearn acc: {unlearn_acc} MIA: {mia} Runtime: {runtime:.2f}s")
+    log.info(
+        "Unlearned - Retain acc: %.4f Unlearn acc: %.4f MIA: %s Runtime: %.2fs",
+        retain_acc, unlearn_acc, mia, runtime,
+    )
 
     if cfg.save_model:
         utils.save_model(
