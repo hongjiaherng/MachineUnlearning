@@ -44,7 +44,9 @@ def main(cfg: DictConfig) -> None:
     unlearning_teacher = MODEL_REGISTRY[cfg.model.name](num_classes=num_classes, input_channels=num_channels).to(device)
 
     if cfg.strategy.name != "retrain":
-        model.load_state_dict(torch.load(cfg.model_path, map_location=device))
+        checkpoint = torch.load(cfg.model_path, map_location=device, weights_only=False)
+        state_dict = checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint
+        model.load_state_dict(state_dict)
 
     ctx = UnlearnContext(
         model=model,

@@ -17,7 +17,7 @@ import torch
 from omegaconf import DictConfig
 from torch import nn
 from torch.nn import functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 from machineunlearning.data.dataset import UnlearningDataset
@@ -54,7 +54,10 @@ def unlearn(cfg: DictConfig, ctx: UnlearnContext) -> nn.Module:
     full_teacher.eval()
     bad_teacher.eval()
 
-    retain_subset = random.sample(ctx.retain_loader.dataset, int(retain_frac * len(ctx.retain_loader.dataset)))
+    retain_dataset = ctx.retain_loader.dataset
+    k = int(retain_frac * len(retain_dataset))
+    indices = random.sample(range(len(retain_dataset)), k)
+    retain_subset = Subset(retain_dataset, indices)
     mixed = UnlearningDataset(forget_data=ctx.unlearn_loader.dataset, retain_data=retain_subset)
     loader = DataLoader(mixed, batch_size=batch_size, shuffle=True, pin_memory=True)
 
