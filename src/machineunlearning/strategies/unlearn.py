@@ -9,9 +9,9 @@ import torch
 import torch.distributions as distributions
 from torch import nn
 from torch.nn import functional as F
-from torch.utils.data import DataLoader, Dataset, Subset, dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 
-from machineunlearning.data import dataset
+from machineunlearning.data.dataset import UnlearningDataset
 
 
 def get_classwise_ds(ds: Dataset, num_classes: int) -> Dataset:
@@ -82,7 +82,7 @@ def blindspot_unlearner(
     KL_temperature=1,
 ):
     # creating the unlearning dataset.
-    unlearning_data = dataset.UnLearningData(forget_data=forget_data, retain_data=retain_data)
+    unlearning_data = UnlearningDataset(forget_data=forget_data, retain_data=retain_data)
     unlearning_loader = DataLoader(unlearning_data, batch_size=batch_size, shuffle=True, pin_memory=True)
 
     unlearning_teacher.eval()
@@ -426,7 +426,7 @@ class ParameterPerturber:
             dictionary[n] = _p
         return dictionary
 
-    def subsample_dataset(self, dataset: dataset, sample_perc: float) -> Subset:
+    def subsample_dataset(self, dataset: Dataset, sample_perc: float) -> Subset:
         """
         Take a subset of the dataset
 
@@ -439,7 +439,7 @@ class ParameterPerturber:
         sample_idxs = np.arange(0, len(dataset), step=int((1 / sample_perc)))
         return Subset(dataset, sample_idxs)
 
-    def split_dataset_by_class(self, dataset: dataset) -> List[Subset]:
+    def split_dataset_by_class(self, dataset: Dataset) -> List[Subset]:
         """
         Split dataset into list of subsets
             each idx corresponds to samples from that class

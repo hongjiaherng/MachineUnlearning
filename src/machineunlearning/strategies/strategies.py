@@ -1,20 +1,29 @@
 """
 Unlearning strategies file
 """
-import copy
-import torch
-from torch.utils.data import DataLoader, ConcatDataset
+
 import argparse
-from copy import deepcopy
+import copy
 import random
-from unlearn_strategies import utils, unlearn
-from unlearn_strategies.unlearn import FGSM, ParameterPerturber, DistillKL, adjust_learning_rate, train_distill
-import numpy as np
-from tqdm import tqdm
 from collections import OrderedDict
+from copy import deepcopy
+
+import numpy as np
+import torch
 import torch.nn.functional as F
 from torch import nn
-from src import metrics
+from torch.utils.data import ConcatDataset, DataLoader
+from tqdm import tqdm
+
+from machineunlearning.data import metrics
+from machineunlearning.strategies import unlearn, utils
+from machineunlearning.strategies.unlearn import (
+    FGSM,
+    DistillKL,
+    ParameterPerturber,
+    adjust_learning_rate,
+    train_distill,
+)
 
 
 def baseline(
@@ -27,7 +36,7 @@ def baseline(
     test_loader: DataLoader,
     num_classes: int,
     num_channels: int,
-    device: torch.device
+    device: torch.device,
 ) -> torch.nn.Module:
     return model
 
@@ -42,17 +51,17 @@ def retrain(
     test_loader: DataLoader,
     num_classes: int,
     num_channels: int,
-    device: torch.device
+    device: torch.device,
 ) -> torch.nn.Module:
 
     # Retrain model from scratch without unlearn dataset
     retrain_model = utils.training_optimization(
-        model= model,
-        train_loader= retain_loader,
-        test_loader= test_loader,
-        epochs= 30,
-        device= device,
-        desc= "Retraining model"
+        model=model,
+        train_loader=retain_loader,
+        test_loader=test_loader,
+        epochs=30,
+        device=device,
+        desc="Retraining model",
     )
 
     return retrain_model
@@ -73,12 +82,12 @@ def fine_tune(
 
     # Fine tune model with retain dataset
     ft_model = utils.training_optimization(
-        model= model,
-        train_loader= retain_loader,
-        test_loader= test_loader,
-        epochs= 5,
-        device= device,
-        desc= "Fine-tuning model"
+        model=model,
+        train_loader=retain_loader,
+        test_loader=test_loader,
+        epochs=5,
+        device=device,
+        desc="Fine-tuning model",
     )
 
     return ft_model
@@ -100,13 +109,13 @@ def gradient_ascent(
 
     epochs = 5
     unlearned_model = copy.deepcopy(model)
-    optimizer = torch.optim.SGD(unlearned_model.parameters(), lr=1e-4, momentum= 0.5)
+    optimizer = torch.optim.SGD(unlearned_model.parameters(), lr=1e-4, momentum=0.5)
     loss_func = nn.CrossEntropyLoss().to(device)
 
-    for epoch in tqdm(range(1, epochs + 1), desc= "Gradient ascent unlearning"):
+    for epoch in tqdm(range(1, epochs + 1), desc="Gradient ascent unlearning"):
         loss_list = []
         for images, labels in unlearn_loader:
-            images, labels= images.to(device), labels.long().to(device)
+            images, labels = images.to(device), labels.long().to(device)
             unlearned_model.zero_grad()
             output = unlearned_model(images)
             # gradient ascent loss
@@ -116,9 +125,9 @@ def gradient_ascent(
             loss_list.append(loss.item())
 
         mean_loss = np.mean(np.array(loss_list))
-        train_acc = metrics.evaluate(val_loader=retain_loader, model=unlearned_model, device=device)['Acc']
-        test_acc = metrics.evaluate(val_loader=test_loader, model=unlearned_model, device=device)['Acc']
-        #tqdm.write(f"Epochs: {epoch} Train Loss: {mean_loss:.4f} Train Acc: {train_acc} Test acc: {test_acc}")
+        train_acc = metrics.evaluate(val_loader=retain_loader, model=unlearned_model, device=device)["Acc"]
+        test_acc = metrics.evaluate(val_loader=test_loader, model=unlearned_model, device=device)["Acc"]
+        # tqdm.write(f"Epochs: {epoch} Train Loss: {mean_loss:.4f} Train Acc: {train_acc} Test acc: {test_acc}")
 
     return unlearned_model
 
@@ -140,8 +149,7 @@ def bad_teacher(
     student_model = deepcopy(model)
     KL_temperature = 1
     optimizer = torch.optim.Adam(student_model.parameters(), lr=0.0001)
-    retain_train_subset = random.sample(
-        retain_loader.dataset, int(0.3 * len(retain_loader.dataset)))
+    retain_train_subset = random.sample(retain_loader.dataset, int(0.3 * len(retain_loader.dataset)))
 
     unlearn.blindspot_unlearner(
         model=student_model,
@@ -175,7 +183,7 @@ def scrub(
 ) -> torch.nn.Module:
 
     # Parameters
-    optim = 'sgd'
+    optim = "sgd"
     gamma = 0.99
     alpha = 0.001
     beta = 0
@@ -184,7 +192,7 @@ def scrub(
     clip = 0.2
     sstart = 10
     kd_T = 4
-    distill = 'kd'
+    distill = "kd"
 
     sgda_batch_size = 128
     del_batch_size = 32
@@ -214,10 +222,8 @@ def scrub(
     criterion_list.append(criterion_kd)  # other knowledge distillation loss
 
     optimizer = torch.optim.SGD(
-        trainable_list.parameters(),
-        lr= sgda_learning_rate,
-        momentum= sgda_momentum,
-        weight_decay= sgda_weight_decay)
+        trainable_list.parameters(), lr=sgda_learning_rate, momentum=sgda_momentum, weight_decay=sgda_weight_decay
+    )
 
     module_list.append(model_t)
 
@@ -225,43 +231,45 @@ def scrub(
         module_list.cuda()
         criterion_list.cuda()
         import torch.backends.cudnn as cudnn
+
         cudnn.benchmark = True
 
-    for epoch in tqdm(range(1, sgda_epochs + 1), desc= "SCRUB Unlearning"):
-
+    for epoch in tqdm(range(1, sgda_epochs + 1), desc="SCRUB Unlearning"):
         lr = adjust_learning_rate(
-            epoch= epoch,
-            optimizer= optimizer,
-            lr_decay_epochs= lr_decay_epochs,
-            sgda_learning_rate= sgda_learning_rate,
-            lr_decay_rate= lr_decay_rate
+            epoch=epoch,
+            optimizer=optimizer,
+            lr_decay_epochs=lr_decay_epochs,
+            sgda_learning_rate=sgda_learning_rate,
+            lr_decay_rate=lr_decay_rate,
         )
 
         maximize_loss = 0
         if epoch <= msteps:
             maximize_loss = train_distill(
-                epoch= epoch,
-                train_loader= unlearn_loader,
-                module_list= module_list,
-                swa_model= None,
-                criterion_list= criterion_list,
-                optimizer= optimizer,
-                gamma= gamma,
-                alpha= alpha,
-                beta= beta,
-                split= "maximize")
+                epoch=epoch,
+                train_loader=unlearn_loader,
+                module_list=module_list,
+                swa_model=None,
+                criterion_list=criterion_list,
+                optimizer=optimizer,
+                gamma=gamma,
+                alpha=alpha,
+                beta=beta,
+                split="maximize",
+            )
         train_acc, train_loss = train_distill(
-            epoch= epoch,
-            train_loader= retain_loader,
-            module_list= module_list,
-            swa_model= None,
-            criterion_list= criterion_list,
-            optimizer= optimizer,
-            gamma= gamma,
-            alpha= alpha,
-            beta= beta,
-            split= "minimize",
-            quiet= True)
+            epoch=epoch,
+            train_loader=retain_loader,
+            module_list=module_list,
+            swa_model=None,
+            criterion_list=criterion_list,
+            optimizer=optimizer,
+            gamma=gamma,
+            alpha=alpha,
+            beta=beta,
+            split="minimize",
+            quiet=True,
+        )
 
     return model_s
 
@@ -278,8 +286,8 @@ def amnesiac(
     num_classes: int,
     num_channels: int,
     device: torch.device,
-)-> torch.nn.Module:
-    
+) -> torch.nn.Module:
+
     unlearninglabels = list(range(num_classes))
     unlearning_trainset = []
 
@@ -291,18 +299,17 @@ def amnesiac(
     for x, y in retain_loader.dataset:
         unlearning_trainset.append((x, y))
 
-    unlearning_train_set_dl = DataLoader(
-        unlearning_trainset, 128, pin_memory=True, shuffle=True
-    )
+    unlearning_train_set_dl = DataLoader(unlearning_trainset, 128, pin_memory=True, shuffle=True)
 
     unlearned_model = utils.training_optimization(
-        model= model, 
-        train_loader= unlearning_train_set_dl,
-        test_loader= test_loader,
-        epochs= 5,
-        device= device,
-        desc= "Amnesiac unlearning")
-    
+        model=model,
+        train_loader=unlearning_train_set_dl,
+        test_loader=test_loader,
+        epochs=5,
+        device=device,
+        desc="Amnesiac unlearning",
+    )
+
     return unlearned_model
 
 
@@ -317,7 +324,7 @@ def boundary(
     test_loader: DataLoader,
     num_classes: int,
     num_channels: int,
-    device: torch.device
+    device: torch.device,
 ) -> torch.nn.Module:
     # Boundary Shrink
     # Hyperparameter
@@ -328,7 +335,7 @@ def boundary(
     bias = -0.5
     slope = 5.0
 
-    #norm = True  # None #True if data_name != "mnist" else False
+    # norm = True  # None #True if data_name != "mnist" else False
     if num_channels == 3:
         norm = True
     else:
@@ -351,7 +358,6 @@ def boundary(
     nearest_label = []
 
     for itr in tqdm(range(poison_epoch * batches_per_epoch)):
-
         x, y = forget_data_gen.__next__()
         x = x.to(device)
         y = y.to(device)
@@ -373,14 +379,14 @@ def boundary(
         ori_loss = criterion(ori_logits, pred_label)
 
         # loss = ori_loss  # - KL_div
-        if extra_exp == 'curv':
+        if extra_exp == "curv":
             ori_curv = unlearn.curvature(model, x, y, h=0.9)[1]
             cur_curv = unlearn.curvature(unlearn_model, x, y, h=0.9)[1]
             delta_curv = torch.norm(ori_curv - cur_curv, p=2)
             loss = ori_loss + lambda_ * delta_curv  # - KL_div
-        elif extra_exp == 'weight_assign':
+        elif extra_exp == "weight_assign":
             weight = unlearn.weight_assign(adv_logits, pred_label, bias=bias, slope=slope)
-            ori_loss = (torch.nn.functional.cross_entropy(ori_logits, pred_label, reduction='none') * weight).mean()
+            ori_loss = (torch.nn.functional.cross_entropy(ori_logits, pred_label, reduction="none") * weight).mean()
             loss = ori_loss
         else:
             loss = ori_loss  # - KL_div
@@ -402,39 +408,25 @@ def ntk(
     num_channels: int,
     device: torch.device,
 ) -> torch.nn.Module:
-    
+
     def delta_w_utils(model_init, dataloader, name="complete"):
         model_init.eval()
-        dataloader = torch.utils.data.DataLoader(
-            dataloader.dataset, batch_size=1, shuffle=False
-        )
+        dataloader = torch.utils.data.DataLoader(dataloader.dataset, batch_size=1, shuffle=False)
         G_list = []
         f0_minus_y = []
-        for idx, batch in enumerate(
-            tqdm(dataloader)
-        ):  # (tqdm(dataloader,leave=False)):
-            batch = [
-                tensor.to(next(model_init.parameters()).device) for tensor in batch
-            ]
+        for idx, batch in enumerate(tqdm(dataloader)):  # (tqdm(dataloader,leave=False)):
+            batch = [tensor.to(next(model_init.parameters()).device) for tensor in batch]
             input, target = batch
 
             target = target.cpu().detach().numpy()
             output = model_init(input)
             G_sample = []
             for cls in range(num_classes):
-                grads = torch.autograd.grad(
-                    output[0, cls], model_init.parameters(), retain_graph=True
-                )
+                grads = torch.autograd.grad(output[0, cls], model_init.parameters(), retain_graph=True)
                 grads = np.concatenate([g.view(-1).cpu().numpy() for g in grads])
                 G_sample.append(grads)
                 G_list.append(grads)
-                p = (
-                    torch.nn.functional.softmax(output, dim=1)
-                    .cpu()
-                    .detach()
-                    .numpy()
-                    .transpose()
-                )
+                p = torch.nn.functional.softmax(output, dim=1).cpu().detach().numpy().transpose()
                 p[target] -= 1
                 f0_y_update = deepcopy(p)
             f0_minus_y.append(f0_y_update)
@@ -471,9 +463,9 @@ def ntk(
     weight_decay = 0.1
 
     # G = np.load('NTK_data/G.npy')
-    theta = G.transpose().dot(G) + (
-        len(retain_loader.dataset) + len(unlearn_loader.dataset)
-    ) * weight_decay * np.eye(G.shape[1])
+    theta = G.transpose().dot(G) + (len(retain_loader.dataset) + len(unlearn_loader.dataset)) * weight_decay * np.eye(
+        G.shape[1]
+    )
     # del G
 
     theta_inv = np.linalg.inv(theta)
@@ -491,9 +483,7 @@ def ntk(
 
     # G_r = np.load('NTK_data/G_r.npy')
     num_to_retain = len(retain_loader.dataset)
-    theta_r = G_r.transpose().dot(G_r) + num_to_retain * weight_decay * np.eye(
-        G_r.shape[1]
-    )
+    theta_r = G_r.transpose().dot(G_r) + num_to_retain * weight_decay * np.eye(G_r.shape[1])
     # del G_r
 
     theta_r_inv = np.linalg.inv(theta_r)
@@ -539,31 +529,23 @@ def ntk(
             param.append(p.data.view(-1).cpu().numpy())
         return np.concatenate(param)
 
-    m_pred_error = (
-        vectorize_params(model) - vectorize_params(model_init) - w_retain.squeeze()
-    )
+    m_pred_error = vectorize_params(model) - vectorize_params(model_init) - w_retain.squeeze()
     print(f"Delta w -------: {np.linalg.norm(delta_w)}")
 
-    inner = np.inner(
-        delta_w / np.linalg.norm(delta_w), m_pred_error / np.linalg.norm(m_pred_error)
-    )
+    inner = np.inner(delta_w / np.linalg.norm(delta_w), m_pred_error / np.linalg.norm(m_pred_error))
     print(f"Inner Product--: {inner}")
 
     if inner < 0:
         angle = np.arccos(inner) - np.pi / 2
         print(f"Angle----------:  {angle}")
 
-        predicted_norm = np.linalg.norm(delta_w) + 2 * np.sin(angle) * np.linalg.norm(
-            m_pred_error
-        )
+        predicted_norm = np.linalg.norm(delta_w) + 2 * np.sin(angle) * np.linalg.norm(m_pred_error)
         print(f"Pred Act Norm--:  {predicted_norm}")
     else:
         angle = np.arccos(inner)
         print(f"Angle----------:  {angle}")
 
-        predicted_norm = np.linalg.norm(delta_w) + 2 * np.cos(angle) * np.linalg.norm(
-            m_pred_error
-        )
+        predicted_norm = np.linalg.norm(delta_w) + 2 * np.cos(angle) * np.linalg.norm(m_pred_error)
         print(f"Pred Act Norm--:  {predicted_norm}")
 
     predicted_scale = predicted_norm / np.linalg.norm(delta_w)
@@ -599,7 +581,7 @@ def fisher(
     num_channels: int,
     device: torch.device,
 ) -> torch.nn.Module:
-    
+
     def hessian(dataset, model):
         model.eval()
         train_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
@@ -681,7 +663,7 @@ def unsir(
     num_channels: int,
     device: torch.device,
 ) -> torch.nn.Module:
-    
+
     classwise_train = unlearn.get_classwise_ds(
         ConcatDataset((retain_loader.dataset, unlearn_loader.dataset)), num_classes
     )
@@ -697,47 +679,34 @@ def unsir(
     forget_class_label = unlearn_class
     img_shape = next(iter(retain_loader.dataset))[0].shape[-1]
     noise = unlearn.UNSIR_noise(noise_batch_size, num_channels, img_shape, img_shape).to(device)
-    noise = unlearn.UNSIR_noise_train(
-        noise, model, forget_class_label, 25, noise_batch_size, device=device
-    )
+    noise = unlearn.UNSIR_noise_train(noise, model, forget_class_label, 25, noise_batch_size, device=device)
     noisy_loader = unlearn.UNSIR_create_noisy_loader(
-        noise,
-        forget_class_label,
-        retain_samples,
-        batch_size=noise_batch_size,
-        device=device
+        noise, forget_class_label, retain_samples, batch_size=noise_batch_size, device=device
     )
     # impair step
     model = utils.training_optimization(
-        model= model, 
-        epochs= 1,
-        train_loader= noisy_loader, 
-        test_loader= retain_valid_dl,
-        opt= "adam",
+        model=model,
+        epochs=1,
+        train_loader=noisy_loader,
+        test_loader=retain_valid_dl,
+        opt="adam",
         device=device,
-        desc= "UNSIR impair step"
+        desc="UNSIR impair step",
     )
     # repair step
     other_samples = []
     for i in range(len(retain_samples)):
-        other_samples.append(
-            (
-                retain_samples[i][0].cpu(),
-                torch.tensor(retain_samples[i][1])
-            )
-        )
+        other_samples.append((retain_samples[i][0].cpu(), torch.tensor(retain_samples[i][1])))
 
-    heal_loader = torch.utils.data.DataLoader(
-        other_samples, batch_size=128, shuffle=True
-    )
+    heal_loader = torch.utils.data.DataLoader(other_samples, batch_size=128, shuffle=True)
     _ = utils.training_optimization(
-        model= model, 
-        epochs= 1,
-        train_loader= heal_loader, 
-        test_loader= retain_valid_dl,
-        opt= "adam",
-        device=device, 
-        desc= "UNSIR repair step"
+        model=model,
+        epochs=1,
+        train_loader=heal_loader,
+        test_loader=retain_valid_dl,
+        opt="adam",
+        device=device,
+        desc="UNSIR repair step",
     )
 
     return model
