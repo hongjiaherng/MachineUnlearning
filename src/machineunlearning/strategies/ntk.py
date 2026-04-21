@@ -63,9 +63,12 @@ def _sample_jacobian_and_residual(
 
 
 def _solve_closed_form(G: np.ndarray, residual: np.ndarray, n_samples: int, weight_decay: float) -> np.ndarray:
-    """Solve w = -G (Gᵀ G + n·λ·I)⁻¹ residual."""
-    theta = G.T @ G + n_samples * weight_decay * np.eye(G.shape[1], dtype=G.dtype)
-    return -G @ np.linalg.solve(theta, residual)
+    """Solve w = -G (Gᵀ G + n·λ·I)⁻¹ residual. Forced to match G.dtype to avoid
+    NumPy's Python-scalar promotion blowing memory up to float64."""
+    reg = np.asarray(n_samples * weight_decay, dtype=G.dtype)
+    theta = (G.T @ G).astype(G.dtype, copy=False)
+    theta += reg * np.eye(G.shape[1], dtype=G.dtype)
+    return -G @ np.linalg.solve(theta, residual.astype(G.dtype, copy=False))
 
 
 def _delta_to_state_dict(delta_w: np.ndarray, model: nn.Module) -> OrderedDict:
