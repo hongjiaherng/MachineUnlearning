@@ -37,7 +37,7 @@ def _mixture_kl_loss(
     bad = F.softmax(bad_teacher_logits / temperature, dim=1)
     target = is_forget * bad + (1 - is_forget) * full
     log_student = F.log_softmax(student_logits / temperature, dim=1)
-    return F.kl_div(log_student, target)  # elementwise mean, preserving original behavior
+    return F.kl_div(log_student, target, reduction="batchmean")
 
 
 def unlearn(cfg: DictConfig, ctx: UnlearnContext) -> nn.Module:
