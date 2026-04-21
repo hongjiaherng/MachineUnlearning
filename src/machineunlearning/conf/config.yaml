@@ -14,3 +14,10 @@ model_root: ./checkpoint
 save_model: true
 no_gpu: false
 report_interval: 5
+
+hydra:
+  run:
+    dir: outputs/train/${now:%Y%m%d-%H%M%S}_${dataset.name}_${model.name}
+  sweep:
+    dir: multirun/train/${now:%Y%m%d-%H%M%S}
+    subdir: ${dataset.name}_${model.name}_${hydra.job.num}
