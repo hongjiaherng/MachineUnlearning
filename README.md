@@ -3,7 +3,7 @@
 #### (Released on March 27, 2025)
 
 ## Introduction
-This repository contains implementations of several popular machine unlearning algorithms in PyTorch, as listed below:
+This repository implements twelve machine unlearning algorithms in PyTorch under a common Hydra-driven interface. Three are reference points — `baseline` (no-op), `retrain` (oracle retrain from scratch on the retain set), and `fine_tune` (fine-tune on the retain set only) — and nine are published methods:
 
 | Algorithm       | Paper                                                                                                                                               | Original Github Repository                            |
 |-----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------|
@@ -18,6 +18,8 @@ This repository contains implementations of several popular machine unlearning a
 | ssd             | [Fast Machine Unlearning Without Retraining Through Selective Synaptic Dampening](https://arxiv.org/abs/2308.07707)                                 | https://github.com/if-loops/selective-synaptic-dampening|
 
 Sincere appreciation to the authors of these popular machine unlearning algorithms for open-sourcing their code, greatly contributing to the success of this repository.
+
+All strategies target **class unlearning** in the current harness — `split_unlearn_dataset` partitions the train set into *retain* (not of `unlearn_class`) and *forget* (the target class).
 ## Getting started
 
 ### Preparation
@@ -55,6 +57,33 @@ uv run mu-unlearn \
 
 The `retrain` strategy does not require `model_path`. Run `uv run mu-train --help` or
 `uv run mu-unlearn --help` to see the full list of composable config groups.
+
+Strategy-specific hyperparameters live under `strategy.params.*` and can be overridden on the command line:
+
+```bash
+uv run mu-unlearn dataset=mnist model=mlp strategy=gradient_ascent unlearn_class=0 \
+  strategy.params.lr=1e-4 strategy.epochs=5 \
+  model_path=./checkpoint/MLP/class/MNIST/<checkpoint>.pt
+```
+
+Hydra writes each run under `outputs/{train,unlearn}/<YYYYMMDD-HHMMSS>_<descriptor>/` with the resolved
+config and logs, so runs are chronologically sortable by default.
+
+### Evaluation
+
+After each unlearning run, three metrics are reported:
+
+- **Retain accuracy** — test accuracy restricted to non-target classes (higher is better).
+- **Unlearn accuracy** — test accuracy on the forget class (lower is better).
+- **MIA** — entropy-based membership-inference attack via logistic regression; lower attack success indicates better forgetting.
+
+### Tests
+
+```bash
+uv run pytest
+```
+
+Runs the synthetic integration tests that exercise every strategy end-to-end on tiny tensors.
 
 ## Feedback
 Suggestions and opinions on this work (both positive and negative) are greatly welcomed. Please contact the author by sending an email to
