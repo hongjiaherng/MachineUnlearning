@@ -16,14 +16,10 @@ from torch.utils.data import ConcatDataset, DataLoader
 from tqdm import tqdm
 
 from machineunlearning.evaluation import metrics
-from machineunlearning.strategies import unlearn, utils
-from machineunlearning.strategies.unlearn import (
-    FGSM,
-    DistillKL,
-    ParameterPerturber,
-    adjust_learning_rate,
-    train_distill,
-)
+from machineunlearning.strategies import _attack, _bad_teacher, _training, _unsir
+from machineunlearning.strategies._attack import FGSM
+from machineunlearning.strategies._distill import DistillKL, adjust_learning_rate, train_distill
+from machineunlearning.strategies._ssd import ParameterPerturber
 
 
 def baseline(
@@ -55,7 +51,7 @@ def retrain(
 ) -> torch.nn.Module:
 
     # Retrain model from scratch without unlearn dataset
-    retrain_model = utils.training_optimization(
+    retrain_model = _training.training_optimization(
         model=model,
         train_loader=retain_loader,
         test_loader=test_loader,
@@ -81,7 +77,7 @@ def fine_tune(
 ) -> torch.nn.Module:
 
     # Fine tune model with retain dataset
-    ft_model = utils.training_optimization(
+    ft_model = _training.training_optimization(
         model=model,
         train_loader=retain_loader,
         test_loader=test_loader,
@@ -151,7 +147,7 @@ def bad_teacher(
     optimizer = torch.optim.Adam(student_model.parameters(), lr=0.0001)
     retain_train_subset = random.sample(retain_loader.dataset, int(0.3 * len(retain_loader.dataset)))
 
-    unlearn.blindspot_unlearner(
+    _bad_teacher.blindspot_unlearner(
         model=student_model,
         unlearning_teacher=unlearning_teacher,
         full_trained_teacher=model,
@@ -301,7 +297,7 @@ def amnesiac(
 
     unlearning_train_set_dl = DataLoader(unlearning_trainset, 128, pin_memory=True, shuffle=True)
 
-    unlearned_model = utils.training_optimization(
+    unlearned_model = _training.training_optimization(
         model=model,
         train_loader=unlearning_train_set_dl,
         test_loader=test_loader,
@@ -346,7 +342,7 @@ def boundary(
     unlearn_model = deepcopy(model).to(device)
     # adv = LinfPGD(test_model, bound, step, iter, norm, random_start, device)
     adv = FGSM(test_model, bound, norm, random_start, device)
-    forget_data_gen = unlearn.inf_generator(unlearn_loader)
+    forget_data_gen = _attack.inf_generator(unlearn_loader)
     batches_per_epoch = len(unlearn_loader)
 
     criterion = nn.CrossEntropyLoss()
@@ -380,12 +376,12 @@ def boundary(
 
         # loss = ori_loss  # - KL_div
         if extra_exp == "curv":
-            ori_curv = unlearn.curvature(model, x, y, h=0.9)[1]
-            cur_curv = unlearn.curvature(unlearn_model, x, y, h=0.9)[1]
+            ori_curv = _attack.curvature(model, x, y, h=0.9)[1]
+            cur_curv = _attack.curvature(unlearn_model, x, y, h=0.9)[1]
             delta_curv = torch.norm(ori_curv - cur_curv, p=2)
             loss = ori_loss + lambda_ * delta_curv  # - KL_div
         elif extra_exp == "weight_assign":
-            weight = unlearn.weight_assign(adv_logits, pred_label, bias=bias, slope=slope)
+            weight = _attack.weight_assign(adv_logits, pred_label, bias=bias, slope=slope)
             ori_loss = (torch.nn.functional.cross_entropy(ori_logits, pred_label, reduction="none") * weight).mean()
             loss = ori_loss
         else:
@@ -664,7 +660,7 @@ def unsir(
     device: torch.device,
 ) -> torch.nn.Module:
 
-    classwise_train = unlearn.get_classwise_ds(
+    classwise_train = _unsir.get_classwise_ds(
         ConcatDataset((retain_loader.dataset, unlearn_loader.dataset)), num_classes
     )
     noise_batch_size = 32
@@ -678,13 +674,13 @@ def unsir(
 
     forget_class_label = unlearn_class
     img_shape = next(iter(retain_loader.dataset))[0].shape[-1]
-    noise = unlearn.UNSIR_noise(noise_batch_size, num_channels, img_shape, img_shape).to(device)
-    noise = unlearn.UNSIR_noise_train(noise, model, forget_class_label, 25, noise_batch_size, device=device)
-    noisy_loader = unlearn.UNSIR_create_noisy_loader(
+    noise = _unsir.UNSIR_noise(noise_batch_size, num_channels, img_shape, img_shape).to(device)
+    noise = _unsir.UNSIR_noise_train(noise, model, forget_class_label, 25, noise_batch_size, device=device)
+    noisy_loader = _unsir.UNSIR_create_noisy_loader(
         noise, forget_class_label, retain_samples, batch_size=noise_batch_size, device=device
     )
     # impair step
-    model = utils.training_optimization(
+    model = _training.training_optimization(
         model=model,
         epochs=1,
         train_loader=noisy_loader,
@@ -699,7 +695,7 @@ def unsir(
         other_samples.append((retain_samples[i][0].cpu(), torch.tensor(retain_samples[i][1])))
 
     heal_loader = torch.utils.data.DataLoader(other_samples, batch_size=128, shuffle=True)
-    _ = utils.training_optimization(
+    _ = _training.training_optimization(
         model=model,
         epochs=1,
         train_loader=heal_loader,
