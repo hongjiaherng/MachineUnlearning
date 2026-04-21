@@ -4,5 +4,5 @@ params:
   weight_decay: 0.1
   # NTK builds a (num_samples*num_classes)^2 Gram matrix — keep both subsamples
   # modest (a few hundred each) unless the model is tiny.
-  retain_subsample: 200
-  forget_subsample: 200
+  retain_subsample: 500
+  forget_subsample: 500
