@@ -105,13 +105,14 @@ def main() -> None:
     )
     runtime = time.time() - start_time
 
-    retain_acc = metrics.evaluate(val_loader=retain_loader, model=unlearned_model, device=device)["Acc"]
-    unlearn_acc = metrics.evaluate(val_loader=unlearn_loader, model=unlearned_model, device=device)["Acc"]
+    retain_acc = metrics.evaluate(model=unlearned_model, dataloader=retain_loader, device=device)["Acc"]
+    unlearn_acc = metrics.evaluate(model=unlearned_model, dataloader=unlearn_loader, device=device)["Acc"]
     mia = metrics.mia(
         retain_loader=retain_loader,
         forget_loader=unlearn_loader,
         test_loader=test_loader,
         model=unlearned_model,
+        device=device,
     )
     print(f"Unlearned - Retain acc: {retain_acc} Unlearn_acc: {unlearn_acc} MIA: {mia} Runtime: {runtime}s")
 

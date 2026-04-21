@@ -53,8 +53,8 @@ def training_optimization(
             loss_list.append(loss.item())
 
         mean_loss = np.mean(np.array(loss_list))
-        train_acc = metrics.evaluate(val_loader=train_loader, model=trained_model, device=device)["Acc"]
-        test_acc = metrics.evaluate(val_loader=test_loader, model=trained_model, device=device)["Acc"]
+        train_acc = metrics.evaluate(model=trained_model, dataloader=train_loader, device=device)["Acc"]
+        test_acc = metrics.evaluate(model=trained_model, dataloader=test_loader, device=device)["Acc"]
         tqdm.write(f"Epochs: {epoch} Train Loss: {mean_loss:.4f} Train Acc: {train_acc} Test acc: {test_acc}")
 
     return trained_model
