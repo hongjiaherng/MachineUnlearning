@@ -86,19 +86,21 @@ def _flatten_params(model: nn.Module) -> np.ndarray:
 def unlearn(cfg: DictConfig, ctx: UnlearnContext) -> nn.Module:
     weight_decay = cfg.strategy.params.weight_decay
     retain_subsample = cfg.strategy.params.get("retain_subsample", None)
+    forget_subsample = cfg.strategy.params.get("forget_subsample", None)
 
     model_init = deepcopy(ctx.model)
     G_r, res_r = _sample_jacobian_and_residual(
         deepcopy(ctx.model), ctx.retain_loader, ctx.num_classes, retain_subsample
     )
     G_f, res_f = _sample_jacobian_and_residual(
-        deepcopy(ctx.model), ctx.unlearn_loader, ctx.num_classes
+        deepcopy(ctx.model), ctx.unlearn_loader, ctx.num_classes, forget_subsample
     )
 
     G = np.concatenate([G_r, G_f], axis=1)
     res = np.concatenate([res_r, res_f])
     n_retain = G_r.shape[1] // ctx.num_classes
-    n_total = n_retain + len(ctx.unlearn_loader.dataset)
+    n_forget = G_f.shape[1] // ctx.num_classes
+    n_total = n_retain + n_forget
 
     w_complete = _solve_closed_form(G, res, n_total, weight_decay).squeeze()
     w_retain = _solve_closed_form(G_r, res_r, n_retain, weight_decay).squeeze()

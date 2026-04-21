@@ -2,6 +2,7 @@ name: ntk
 epochs: 0
 params:
   weight_decay: 0.1
-  # Canonical NTK scrubbing uses a retain subsample — the full Jacobian is
-  # (num_classes * num_samples) x num_params and blows memory otherwise.
-  retain_subsample: 500
+  # NTK builds a (num_samples*num_classes)^2 Gram matrix — keep both subsamples
+  # modest (a few hundred each) unless the model is tiny.
+  retain_subsample: 200
+  forget_subsample: 200
