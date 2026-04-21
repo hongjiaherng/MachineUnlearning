@@ -129,63 +129,172 @@ class UnlearningDataset(Dataset):
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-_DATASET_SPECS = {
-    # name: (builder, mean, std, aug_ops, pre_ops)
-    "MNIST": (MNIST, MNIST_MEAN, MNIST_STD, (), ()),
-    "FashionMNIST": (FashionMNIST, MNIST_MEAN, MNIST_STD, (), ()),
-    "CIFAR10": (
-        CIFAR10, CIFAR_MEAN, CIFAR_STD,
-        (transforms.RandomCrop(32, padding=4), transforms.RandomHorizontalFlip(), transforms.RandomRotation(15)),
-        (),
-    ),
-    "CIFAR100": (
-        CIFAR100, CIFAR_MEAN, CIFAR_STD,
-        (transforms.RandomCrop(32, padding=4), transforms.RandomHorizontalFlip(), transforms.RandomRotation(15)),
-        (),
-    ),
-    "CIFAR20": (
-        CIFAR20, CIFAR_MEAN, CIFAR_STD,
-        (transforms.RandomCrop(32, padding=4), transforms.RandomHorizontalFlip(), transforms.RandomRotation(15)),
-        (),
-    ),
-    "TinyImageNet": (
-        TinyImageNet, IMAGENET_MEAN, IMAGENET_STD,
-        (transforms.RandomHorizontalFlip(), transforms.RandomRotation(15)),
-        (transforms.Resize(64),),
-    ),
-}
-
-
-def _build_transforms(mean, std, aug_ops, pre_ops, augment):
-    ops = list(pre_ops)
-    if augment:
-        ops.extend(aug_ops)
-    ops.extend([transforms.ToTensor(), transforms.Normalize(mean, std)])
-    return transforms.Compose(ops)
-
-
 def get_dataset(
     dataset_name: Literal["MNIST", "FashionMNIST", "CIFAR10", "CIFAR100", "CIFAR20", "TinyImageNet"],
     root: str,
     augment: bool = True,
 ):
-    if dataset_name not in _DATASET_SPECS:
-        raise ValueError(f"Unknown dataset: {dataset_name}")
+    if dataset_name == "MNIST":
+        train = MNIST(
+            root=root,
+            train=True,
+            download=True,
+            transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize(MNIST_MEAN, MNIST_STD)]),
+        )
+        test = MNIST(
+            root=root,
+            train=False,
+            download=True,
+            transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize(MNIST_MEAN, MNIST_STD)]),
+        )
+        num_classes = len(train.classes)
+        num_channels = train[0][0].shape[0]
+        return train, test, num_classes, num_channels
 
-    builder, mean, std, aug_ops, pre_ops = _DATASET_SPECS[dataset_name]
-    train_transform = _build_transforms(mean, std, aug_ops, pre_ops, augment)
-    test_transform = _build_transforms(mean, std, aug_ops, pre_ops, augment=False)
+    elif dataset_name == "FashionMNIST":
+        train = FashionMNIST(
+            root=root,
+            train=True,
+            download=True,
+            transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize(MNIST_MEAN, MNIST_STD)]),
+        )
+        test = FashionMNIST(
+            root=root,
+            train=False,
+            download=True,
+            transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize(MNIST_MEAN, MNIST_STD)]),
+        )
+        num_classes = len(train.classes)
+        num_channels = train[0][0].shape[0]
+        return train, test, num_classes, num_channels
 
-    kwargs = {"root": root, "transform": train_transform}
-    if dataset_name != "TinyImageNet":
-        kwargs["download"] = True
+    elif dataset_name == "CIFAR10":
+        if augment:
+            train_transform = transforms.Compose(
+                [
+                    transforms.RandomCrop(32, padding=4),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.RandomRotation(15),
+                    transforms.ToTensor(),
+                    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+                ]
+            )
+        else:
+            train_transform = transforms.Compose(
+                [
+                    transforms.ToTensor(),
+                    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+                ]
+            )
+        test_transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+            ]
+        )
 
-    train = builder(train=True, **kwargs)
-    test = builder(train=False, **{**kwargs, "transform": test_transform})
+        train = CIFAR10(root=root, train=True, download=True, transform=train_transform)
+        test = CIFAR10(root=root, train=False, download=True, transform=test_transform)
+        num_classes = len(train.classes)
+        num_channels = train[0][0].shape[0]
+        return train, test, num_classes, num_channels
 
-    num_classes = len(train.classes)
-    num_channels = train[0][0].shape[0]
-    return train, test, num_classes, num_channels
+    elif dataset_name == "CIFAR100":
+        if augment:
+            train_transform = transforms.Compose(
+                [
+                    transforms.RandomCrop(32, padding=4),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.RandomRotation(15),
+                    transforms.ToTensor(),
+                    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+                ]
+            )
+        else:
+            train_transform = transforms.Compose(
+                [
+                    transforms.ToTensor(),
+                    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+                ]
+            )
+        test_transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+            ]
+        )
+        train = CIFAR100(root=root, train=True, download=True, transform=train_transform)
+        test = CIFAR100(root=root, train=False, download=True, transform=test_transform)
+        num_classes = len(train.classes)
+        num_channels = train[0][0].shape[0]
+        return train, test, num_classes, num_channels
+
+    elif dataset_name == "CIFAR20":
+        if augment:
+            train_transform = transforms.Compose(
+                [
+                    transforms.RandomCrop(32, padding=4),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.RandomRotation(15),
+                    transforms.ToTensor(),
+                    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+                ]
+            )
+        else:
+            train_transform = transforms.Compose(
+                [
+                    transforms.ToTensor(),
+                    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+                ]
+            )
+        test_transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+            ]
+        )
+        train = CIFAR20(root=root, train=True, download=True, transform=train_transform)
+        test = CIFAR20(root=root, train=False, download=True, transform=test_transform)
+        num_classes = len(train.classes)
+        num_channels = train[0][0].shape[0]
+        return train, test, num_classes, num_channels
+
+    elif dataset_name == "TinyImageNet":
+        if augment:
+            train_transform = transforms.Compose(
+                [
+                    transforms.Resize(64),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.RandomRotation(15),
+                    transforms.ToTensor(),
+                    transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+                ]
+            )
+        else:
+            train_transform = transforms.Compose(
+                [
+                    transforms.Resize(64),
+                    transforms.ToTensor(),
+                    transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+                ]
+            )
+        test_transform = transforms.Compose(
+            [
+                transforms.Resize(64),
+                transforms.ToTensor(),
+                transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+            ]
+        )
+
+        train = TinyImageNet(root=root, train=True, transform=train_transform)
+        test = TinyImageNet(root=root, train=False, transform=test_transform)
+
+        num_classes = len(train.classes)
+        num_channels = train[0][0].shape[0]
+
+        return train, test, num_classes, num_channels
+
+    raise ValueError(f"Unknown dataset: {dataset_name}")
 
 
 def split_unlearn_dataset(dataset: Dataset, unlearn_class: int):
